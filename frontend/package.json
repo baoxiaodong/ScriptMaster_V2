@@ -1,0 +1,28 @@
+{
+  "name": "scriptmaster-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs --fix --ignore-path .gitignore",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "element-plus": "^2.4.4",
+    "md-editor-v3": "^6.4.2",
+    "uuid": "^13.0.0",
+    "vue": "^3.3.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^4.2.3",
+    "@vue/eslint-config-prettier": "^10.2.0",
+    "eslint": "^10.2.1",
+    "eslint-plugin-vue": "^10.8.0",
+    "prettier": "^3.8.3",
+    "vite": "^4.4.5"
+  }
+}
