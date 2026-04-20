@@ -66,6 +66,9 @@
           
           <el-collapse v-model="activePreviewPanel">
             <el-collapse-item title="数据结构嗅探完毕 (共 {{ totalRows }} 章节，Top 10 可折叠预览)" name="1">
+              <template #title>
+                {{ `数据结构嗅探完毕 (共 ${totalRows} 章节，Top 10 可折叠预览)` }}
+              </template>
               <el-table
                 :data="previewData"
                 border
