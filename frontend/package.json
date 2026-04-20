@@ -11,11 +11,15 @@
     "format": "prettier --write ."
   },
   "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
     "axios": "^1.6.0",
     "element-plus": "^2.4.4",
+    "file-saver": "^2.0.5",
+    "jszip": "^3.10.1",
     "md-editor-v3": "^6.4.2",
     "uuid": "^13.0.0",
-    "vue": "^3.3.4"
+    "vue": "^3.3.4",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^4.2.3",
