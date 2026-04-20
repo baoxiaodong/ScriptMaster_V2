@@ -35,7 +35,7 @@
             </el-select>
             <el-alert
               v-if="config.provider === 'Mock (演示)'"
-              title="当前为断网演示模式，不消耗实际额度，仅供界面测试使用"
+              title="当前为 Mock 演示模式，将调用本地后端的演示数据流程，不消耗真实模型额度，仅供功能演示与界面测试使用"
               type="warning"
               show-icon
               :closable="false"

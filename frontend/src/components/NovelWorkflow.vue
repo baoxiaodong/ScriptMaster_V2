@@ -153,10 +153,11 @@
         </div>
 
         <div class="action-bar split">
-          <div>
-            <el-button plain @click="goBack">返回上一步</el-button>
+          <div class="workflow-inline-actions">
+            <el-button class="workflow-link-btn" @click="goBack">返回上一步</el-button>
+            <span class="workflow-link-divider" aria-hidden="true">|</span>
             <el-button
-              plain
+              class="workflow-link-btn workflow-link-btn--warm"
               @click="
                 activeStep = 0;
                 uploadedFileName = '';
@@ -172,7 +173,7 @@
       <div v-else-if="activeStep === 2" class="glass-card" style="padding: 0">
         
         <div class="center-action" v-if="!isGeneratingStoryboard && Object.keys(finalResults).length === 0" style="padding: 80px">
-          <el-button plain @click="goBack" style="margin-bottom: 20px">返回上一步</el-button>
+          <el-button class="workflow-link-btn" @click="goBack" style="margin-bottom: 20px">返回上一步</el-button>
           <el-button class="btn-hermes mega" @click="generateStoryboard">
             🚀 启动工业级分镜渲染引擎 (共 {{ totalEpisodes }} 集)
           </el-button>
@@ -196,7 +197,7 @@
               <span class="dot g"></span> 剧本分镜矩阵生成完毕 (共 {{ Object.keys(finalResults).length }} 集)
             </div>
             <div class="actions">
-              <el-button plain @click="goBack">返回上一步</el-button>
+              <el-button class="workflow-link-btn" @click="goBack">返回上一步</el-button>
               <el-button plain type="primary" @click="exportCurrentExcel" style="font-weight: bold">
                 <el-icon style="margin-right: 6px"><Download /></el-icon> 下载本集
               </el-button>

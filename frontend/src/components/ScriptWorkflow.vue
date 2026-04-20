@@ -73,7 +73,7 @@
         </div>
         
         <div class="step-footer split">
-          <el-button plain @click="goBack" size="large" :disabled="isGenerating">⬅ 上一步：修改创意</el-button>
+          <el-button class="workflow-link-btn" @click="goBack" size="large" :disabled="isGenerating">⬅ 上一步：修改创意</el-button>
           <el-button type="danger" plain @click="stopTask" v-if="isGenerating">■ 紧急阻断</el-button>
           <el-button class="btn-hermes" :disabled="selectedActIndex === null || isGenerating" @click="activeStep = 2" size="large" v-if="!isGenerating">确认结构，进入动态大纲阶段 ➡</el-button>
         </div>
@@ -126,7 +126,7 @@
         </div>
 
         <div class="step-footer split">
-          <el-button plain @click="goBack" size="large" :disabled="isGenerating">⬅ 上一步：重选三幕式</el-button>
+          <el-button class="workflow-link-btn" @click="goBack" size="large" :disabled="isGenerating">⬅ 上一步：重选三幕式</el-button>
           <el-button class="btn-hermes" :disabled="!scriptOutline || isGenerating" @click="goToStep4AndGenerate" size="large">
             大纲定稿，一键下发分镜渲染 ➡
           </el-button>
@@ -143,7 +143,7 @@
           <h2 class="empty-title">大纲已就绪，等待下发分镜渲染引擎</h2>
           <p class="empty-desc">系统将自动调度大模型算力，为您将大纲裂变为包含镜号、景别、画面、台词的专业分镜矩阵</p>
           <div class="action-buttons">
-            <el-button plain @click="goBack" class="mega-plain" size="large">⬅ 返回精修大纲</el-button>
+            <el-button class="workflow-link-btn workflow-link-btn--warm mega-plain" @click="goBack" size="large">⬅ 返回精修大纲</el-button>
             <el-button class="btn-hermes mega" @click="generateStoryboard">
               <el-icon style="margin-right: 8px"><VideoPlay /></el-icon> 启动全分镜渲染
             </el-button>
@@ -171,7 +171,7 @@
               <span class="dot g"></span> 剧本分镜矩阵生成完毕 (共 {{ Object.keys(finalResults).length }} 集)
             </div>
             <div class="actions">
-              <el-button plain @click="goBack">返回上一步</el-button>
+              <el-button class="workflow-link-btn" @click="goBack">返回上一步</el-button>
               <el-button plain type="primary" @click="exportCurrentExcel" style="font-weight: bold">
                 <el-icon style="margin-right: 6px"><Download /></el-icon> 下载本集
               </el-button>

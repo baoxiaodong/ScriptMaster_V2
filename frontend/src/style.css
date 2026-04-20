@@ -73,3 +73,57 @@ body {
   background: linear-gradient(180deg, #fff5e6 0%, #ffedd0 100%) !important;
   border-right: 2px solid #e8c87a !important;
 }
+
+.workflow-inline-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.workflow-link-divider {
+  color: #e2e8f0;
+  font-weight: 300;
+  user-select: none;
+}
+
+.workflow-link-btn.el-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 6px;
+  box-shadow: none;
+  transition: all 0.2s ease;
+}
+
+.workflow-link-btn.el-button:hover,
+.workflow-link-btn.el-button:focus-visible {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.workflow-link-btn.el-button.is-disabled,
+.workflow-link-btn.el-button.is-disabled:hover {
+  background: transparent;
+  color: #94a3b8;
+}
+
+.workflow-link-btn .el-icon {
+  margin-right: 0;
+}
+
+.workflow-link-btn--warm.el-button {
+  color: #ea580c;
+}
+
+.workflow-link-btn--warm.el-button:hover,
+.workflow-link-btn--warm.el-button:focus-visible {
+  background: #fff7ed;
+  color: #c2410c;
+}
