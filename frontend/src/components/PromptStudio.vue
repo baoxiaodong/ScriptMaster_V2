@@ -302,10 +302,58 @@
             <section class="compare-panel">
               <div class="compare-toolbar">
                 <div class="compare-mode">{{ playgroundMeta.mode }}</div>
-                <div class="compare-export">{{ playgroundMeta.exportLabel }}</div>
+                <div class="compare-toolbar-right">
+                  <el-radio-group v-if="supportsStoryboardCards" v-model="resultViewMode" size="small" class="result-view-switch">
+                    <el-radio-button label="cards">分镜卡片</el-radio-button>
+                    <el-radio-button label="text">原始文本</el-radio-button>
+                  </el-radio-group>
+                  <div class="compare-export">{{ playgroundMeta.exportLabel }}</div>
+                </div>
               </div>
 
-              <div class="screen-wall">
+              <div v-if="supportsStoryboardCards && resultViewMode === 'cards'" class="storyboard-compare-list">
+                <article v-for="pair in alignedStoryboardPairs" :key="`pair-${pair.shot}`" class="storyboard-compare-row">
+                  <div class="compare-row-marker">SHOT {{ pair.shot }}</div>
+                  <div class="compare-row-grid">
+                    <section class="storyboard-shot-card">
+                      <div class="shot-card-top">
+                        <span class="shot-index">A 屏</span>
+                        <span class="shot-scene">{{ pair.official.scene }}</span>
+                      </div>
+                      <div class="shot-card-body">
+                        <section class="shot-section">
+                          <span class="shot-label">画面</span>
+                          <p>{{ pair.official.visual }}</p>
+                        </section>
+                        <section class="shot-section tone-audio">
+                          <span class="shot-label">声音</span>
+                          <p>{{ pair.official.audio }}</p>
+                        </section>
+                      </div>
+                    </section>
+
+                    <section class="storyboard-shot-card active">
+                      <div class="shot-card-top">
+                        <span class="shot-index">B 屏</span>
+                        <span class="shot-scene">{{ pair.draft.scene }}</span>
+                      </div>
+                      <div class="shot-card-body">
+                        <section class="shot-section">
+                          <span class="shot-label">画面</span>
+                          <p>{{ pair.draft.visual }}</p>
+                        </section>
+                        <section class="shot-section tone-audio">
+                          <span class="shot-label">声音</span>
+                          <p>{{ pair.draft.audio }}</p>
+                        </section>
+                      </div>
+                    </section>
+                  </div>
+                </article>
+                <div v-if="!alignedStoryboardPairs.length" class="storyboard-empty">{{ getDisplayContent(testResults.draft || testResults.official) }}</div>
+              </div>
+
+              <div v-else class="screen-wall">
                 <article class="screen-card">
                   <header class="screen-head">
                     <div>
@@ -567,6 +615,7 @@ const resultFullscreenTitle = ref('')
 const resultFullscreenContent = ref('')
 const estimatedSeconds = ref(0)
 const elapsedSeconds = ref(0)
+const resultViewMode = ref('text')
 
 const lineNumbersRef = ref(null)
 const zenLineNumbersRef = ref(null)
@@ -682,6 +731,7 @@ const missingVars = computed(() => {
 const requiresApiKey = computed(() => config?.provider !== 'Mock (演示)')
 const apiKeyReady = computed(() => !requiresApiKey.value || Boolean(config?.apiKey && config.apiKey.trim()))
 const canStartABTest = computed(() => apiKeyReady.value && missingVars.value.length === 0)
+const supportsStoryboardCards = computed(() => playgroundMeta.value.resultType === 'excel')
 
 const diffStats = computed(() => {
   const officialLines = officialPrompt.value ? officialPrompt.value.split('\n').length : 0
@@ -730,6 +780,10 @@ const testingStatusHint = computed(() => {
   if (config?.provider === 'Mock (演示)') return 'Mock 演示模式下正在返回本地演练结果。'
   return '系统正在并发请求官方版与调优版，请耐心等待流式输出。'
 })
+
+watch(supportsStoryboardCards, (enabled) => {
+  resultViewMode.value = enabled ? 'cards' : 'text'
+}, { immediate: true })
 
 watch(editBuffer, (newVal) => {
   saveStatus.value = '正在保存...'
@@ -922,6 +976,54 @@ const parseResultToRows = (content) => {
 
   return [['内容'], ...lines.map((line) => [line])]
 }
+
+const normalizeHeader = (header) => String(header || '').trim().toLowerCase()
+
+const rowsToStoryboardCards = (rows) => {
+  if (!Array.isArray(rows) || rows.length < 2) return []
+
+  const headers = rows[0].map((item) => normalizeHeader(item))
+  const shotIndex = headers.findIndex((item) => item.includes('shot') || item.includes('镜号'))
+  const sceneIndex = headers.findIndex((item) => item.includes('场景') || item.includes('scene'))
+  const visualIndex = headers.findIndex((item) => item.includes('画面') || item.includes('visual'))
+  const audioIndex = headers.findIndex((item) => item.includes('台词') || item.includes('dialogue') || item.includes('音效') || item.includes('sfx') || item.includes('声音'))
+
+  if (visualIndex === -1 && audioIndex === -1) return []
+
+  return rows.slice(1)
+    .filter((row) => Array.isArray(row) && row.some((cell) => String(cell || '').trim()))
+    .map((row, index) => ({
+      shot: String(row[shotIndex] || index + 1).trim() || `${index + 1}`,
+      scene: String(row[sceneIndex] || '未标注场景').trim() || '未标注场景',
+      visual: String(row[visualIndex] || '暂无画面描述').trim() || '暂无画面描述',
+      audio: String(row[audioIndex] || '暂无声音描述').trim() || '暂无声音描述',
+    }))
+}
+
+const officialStoryboardCards = computed(() => rowsToStoryboardCards(parseResultToRows(testResults.value.official)))
+const draftStoryboardCards = computed(() => rowsToStoryboardCards(parseResultToRows(testResults.value.draft)))
+const alignedStoryboardPairs = computed(() => {
+  const officialMap = new Map(officialStoryboardCards.value.map((card) => [String(card.shot), card]))
+  const draftMap = new Map(draftStoryboardCards.value.map((card) => [String(card.shot), card]))
+  const allShots = [...new Set([...officialMap.keys(), ...draftMap.keys()])]
+    .sort((a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0))
+
+  return allShots.map((shot, index) => ({
+    shot: shot || `${index + 1}`,
+    official: officialMap.get(shot) || {
+      shot: shot || `${index + 1}`,
+      scene: '该镜号缺失',
+      visual: '官方原版未返回该镜头。',
+      audio: '暂无声音描述',
+    },
+    draft: draftMap.get(shot) || {
+      shot: shot || `${index + 1}`,
+      scene: '该镜号缺失',
+      visual: '当前调优版未返回该镜头。',
+      audio: '暂无声音描述',
+    },
+  }))
+})
 
 const exportExcel = (content, suffix) => {
   const rows = parseResultToRows(content)
@@ -1839,7 +1941,8 @@ onMounted(loadPrompt)
 }
 
 .playground-panel {
-  overflow: auto;
+  overflow: hidden;
+  min-height: 0;
 }
 
 .playground-top {
@@ -1847,6 +1950,7 @@ onMounted(loadPrompt)
   justify-content: space-between;
   gap: 16px;
   align-items: stretch;
+  flex-shrink: 0;
 }
 
 .playground-hero {
@@ -1854,8 +1958,8 @@ onMounted(loadPrompt)
   display: flex;
   justify-content: space-between;
   gap: 18px;
-  padding: 22px 24px;
-  border-radius: 24px;
+  padding: 18px 20px;
+  border-radius: 20px;
   background:
     linear-gradient(135deg, rgba(17, 24, 39, 0.94), rgba(51, 65, 85, 0.94)),
     linear-gradient(135deg, #111827, #334155);
@@ -1880,14 +1984,7 @@ onMounted(loadPrompt)
 
 .playground-hero h3 {
   margin: 0;
-  font-size: 28px;
-}
-
-.playground-hero p {
-  margin: 10px 0 0;
-  max-width: 680px;
-  color: rgba(255, 255, 255, 0.78);
-  line-height: 1.7;
+  font-size: 24px;
 }
 
 .hero-tags {
@@ -1910,7 +2007,7 @@ onMounted(loadPrompt)
 }
 
 .playground-actions {
-  width: 260px;
+  width: 220px;
   display: flex;
   align-items: stretch;
 }
@@ -1920,7 +2017,7 @@ onMounted(loadPrompt)
   height: auto;
   min-height: 100%;
   border: none;
-  border-radius: 24px;
+  border-radius: 20px;
   background: linear-gradient(135deg, #d97706, #f97316);
   color: #fff;
   font-size: 15px;
@@ -1932,39 +2029,15 @@ onMounted(loadPrompt)
   background: linear-gradient(135deg, #dc2626, #ef4444);
 }
 
-.operation-hint {
-  padding: 16px 18px;
-  border-radius: 18px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(255, 255, 255, 0.9);
-}
-
-.operation-hint.warning {
-  border-color: rgba(239, 68, 68, 0.24);
-  background: linear-gradient(135deg, #fff1f2, #ffffff);
-}
-
-.hint-title {
-  color: #111827;
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.hint-copy {
-  margin-top: 6px;
-  color: #64748b;
-  font-size: 13px;
-  line-height: 1.7;
-}
-
 .testing-banner {
   display: grid;
   grid-template-columns: 1.3fr 1fr;
   gap: 18px;
-  padding: 18px 20px 22px;
-  border-radius: 22px;
+  padding: 14px 18px 18px;
+  border-radius: 18px;
   background: linear-gradient(135deg, #111827, #1f2937);
   color: #f8fafc;
+  flex-shrink: 0;
 }
 
 .testing-banner-left,
@@ -1977,13 +2050,6 @@ onMounted(loadPrompt)
 .testing-banner-left strong {
   display: block;
   font-size: 16px;
-}
-
-.testing-banner-left p {
-  margin: 6px 0 0;
-  color: rgba(226, 232, 240, 0.76);
-  font-size: 13px;
-  line-height: 1.6;
 }
 
 .loading-orb {
@@ -2032,39 +2098,13 @@ onMounted(loadPrompt)
   animation: shimmerMove 2s linear infinite;
 }
 
-.capability-strip {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.capability-item {
-  padding: 16px 18px;
-  border-radius: 18px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(255, 255, 255, 0.86);
-}
-
-.capability-item strong {
-  display: block;
-  color: #111827;
-  font-size: 14px;
-}
-
-.capability-item span {
-  display: block;
-  margin-top: 6px;
-  color: #64748b;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
 .playground-grid {
   flex: 1;
   display: grid;
-  grid-template-columns: 360px 1fr;
-  gap: 18px;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 16px;
   min-height: 0;
+  height: min(68vh, 720px);
 }
 
 .sandbox-panel,
@@ -2072,7 +2112,7 @@ onMounted(loadPrompt)
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-radius: 24px;
+  border-radius: 20px;
   border: 1px solid rgba(148, 163, 184, 0.18);
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 20px 40px rgba(15, 23, 42, 0.04);
@@ -2081,9 +2121,9 @@ onMounted(loadPrompt)
 .panel-head {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
-  align-items: flex-start;
-  padding: 22px 22px 16px;
+  gap: 12px;
+  align-items: center;
+  padding: 18px 18px 12px;
 }
 
 .panel-kicker {
@@ -2098,63 +2138,38 @@ onMounted(loadPrompt)
 
 .panel-head h4 {
   margin: 0;
-  font-size: 20px;
+  font-size: 18px;
   color: #111827;
 }
 
-.panel-note {
-  max-width: 180px;
-  color: #6b7280;
-  font-size: 12px;
-  line-height: 1.6;
-  text-align: right;
-}
-
-.flow-strip {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  padding: 0 22px 18px;
-}
-
-.flow-step {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px;
-  border-radius: 16px;
-  background: #f8fafc;
-  border: 1px solid #e5e7eb;
-}
-
-.flow-step strong {
-  width: 26px;
-  height: 26px;
+.sandbox-status {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  padding: 7px 12px;
   border-radius: 999px;
-  background: #111827;
-  color: #fff;
-  font-size: 12px;
-}
-
-.flow-step span {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
   color: #475569;
   font-size: 12px;
-  line-height: 1.5;
+  font-weight: 700;
+}
+
+.sandbox-status.warning {
+  background: #fff1f2;
+  border-color: #fecdd3;
+  color: #be123c;
 }
 
 .input-list {
   flex: 1;
   overflow: auto;
-  padding: 0 22px 22px;
+  padding: 0 18px 18px;
 }
 
 .input-card {
-  margin-bottom: 14px;
-  padding: 16px;
-  border-radius: 18px;
+  margin-bottom: 12px;
+  padding: 14px;
+  border-radius: 16px;
   background: #fffdf8;
   border: 1px solid #f1f5f9;
 }
@@ -2188,48 +2203,51 @@ onMounted(loadPrompt)
 }
 
 .compare-panel {
-  padding: 20px;
-  gap: 18px;
+  padding: 16px;
+  gap: 12px;
 }
 
-.compare-overview {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+.compare-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
-.overview-card {
-  padding: 18px;
-  border-radius: 20px;
+.compare-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.compare-mode,
+.compare-export {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px 14px;
+  border-radius: 999px;
   background: #f8fafc;
   border: 1px solid #e5e7eb;
-}
-
-.overview-card.warm {
-  background: linear-gradient(135deg, #fff7ed, #fffbeb);
-  border-color: rgba(249, 115, 22, 0.18);
-}
-
-.overview-label {
-  color: #d97706;
+  color: #0f172a;
   font-size: 12px;
   font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
-.overview-card strong {
-  display: block;
-  margin-top: 8px;
-  color: #111827;
-  font-size: 18px;
+.result-view-switch :deep(.el-radio-button__inner) {
+  border-radius: 999px !important;
+  border: 1px solid #e5e7eb !important;
+  box-shadow: none !important;
+  background: #fff !important;
+  color: #475569 !important;
+  font-weight: 700;
 }
 
-.overview-card p {
-  margin: 8px 0 0;
-  color: #64748b;
-  font-size: 13px;
-  line-height: 1.6;
+.result-view-switch :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  background: #111827 !important;
+  border-color: #111827 !important;
+  color: #fff !important;
 }
 
 .screen-wall {
@@ -2237,7 +2255,7 @@ onMounted(loadPrompt)
   min-height: 0;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: 12px;
 }
 
 .screen-card {
@@ -2245,7 +2263,7 @@ onMounted(loadPrompt)
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-radius: 22px;
+  border-radius: 18px;
   border: 1px solid rgba(148, 163, 184, 0.2);
   background: #fff;
 }
@@ -2260,7 +2278,7 @@ onMounted(loadPrompt)
   justify-content: space-between;
   gap: 12px;
   align-items: center;
-  padding: 18px 18px 14px;
+  padding: 14px 16px 12px;
   border-bottom: 1px solid #eef2f7;
   background: #f8fafc;
 }
@@ -2287,15 +2305,9 @@ onMounted(loadPrompt)
 }
 
 .screen-head h5 {
-  margin: 10px 0 0;
+  margin: 8px 0 0;
   color: #111827;
-  font-size: 18px;
-}
-
-.screen-head p {
-  margin: 6px 0 0;
-  color: #64748b;
-  font-size: 13px;
+  font-size: 16px;
 }
 
 .screen-tools {
@@ -2315,9 +2327,135 @@ onMounted(loadPrompt)
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 20px;
+  padding: 16px;
   background:
     linear-gradient(180deg, rgba(248, 250, 252, 0.5) 0%, rgba(255, 255, 255, 0.9) 100%);
+}
+
+.storyboard-compare-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  gap: 14px;
+  padding-right: 2px;
+}
+
+.storyboard-compare-row {
+  display: grid;
+  gap: 10px;
+}
+
+.compare-row-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #111827;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.compare-row-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.storyboard-card-list {
+  display: grid;
+  gap: 12px;
+}
+
+.storyboard-shot-card {
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  overflow: hidden;
+}
+
+.storyboard-shot-card.active {
+  border-color: rgba(249, 115, 22, 0.26);
+  box-shadow: 0 12px 24px rgba(249, 115, 22, 0.08);
+}
+
+.shot-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #eef2f7;
+  background: #f8fafc;
+}
+
+.shot-index {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #111827;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.storyboard-shot-card.active .shot-index {
+  background: #ea580c;
+}
+
+.shot-scene {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.shot-card-body {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.shot-section {
+  padding: 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.shot-section.tone-audio {
+  background: #fff7ed;
+}
+
+.shot-label {
+  display: inline-block;
+  margin-bottom: 8px;
+  color: #d97706;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.shot-section p {
+  margin: 0;
+  color: #1f2937;
+  font-size: 13px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.storyboard-empty {
+  padding: 18px;
+  border-radius: 14px;
+  border: 1px dashed #cbd5e1;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
 }
 
 .screen-text,
@@ -2488,7 +2626,6 @@ onMounted(loadPrompt)
   .playground-top,
   .playground-grid,
   .screen-wall,
-  .capability-strip,
   .diff-stats,
   .testing-banner {
     grid-template-columns: 1fr;
@@ -2515,16 +2652,20 @@ onMounted(loadPrompt)
   .panel-head,
   .input-card-head,
   .screen-head,
+  .compare-toolbar,
+  .compare-toolbar-right,
   .testing-banner-left,
   .testing-banner-right {
     flex-direction: column;
     align-items: flex-start;
   }
 
-  .flow-strip,
-  .compare-overview,
-  .capability-strip,
-  .diff-stats {
+  .diff-stats,
+  .screen-wall {
+    grid-template-columns: 1fr;
+  }
+
+  .compare-row-grid {
     grid-template-columns: 1fr;
   }
 
