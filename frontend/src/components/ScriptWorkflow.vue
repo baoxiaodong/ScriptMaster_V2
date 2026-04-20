@@ -1795,6 +1795,7 @@
 import { ref, computed, onMounted, nextTick, watch, inject } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
 import { engine } from '../api/engine'
+import { apiUrl } from '../api/base'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 import * as XLSX from 'xlsx'
@@ -1875,7 +1876,7 @@ let timer = null;
 
 onMounted(async () => {
   try {
-    const res = await axios.get("/api/script/default_creative");
+    const res = await axios.get(apiUrl('/api/script/default_creative'));
     if (res.data && res.data.creative) creativeIdea.value = res.data.creative;
   } catch (err) { creativeIdea.value = "无法加载默认创意，请手动输入。"; }
 });

@@ -1,49 +1,94 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
-const path = require('path');
-const express = require('express');
+const { spawn } = require('child_process');
 const fs = require('fs');
+const path = require('path');
 
-// 创建Express应用
-const expressApp = express();
 const port = 8000;
+const backendReadyUrl = `http://127.0.0.1:${port}/`;
 
-// 加载Python后端
-const { PythonShell } = require('python-shell');
+let backendProcess = null;
+let mainWindow = null;
 
-// 配置Express中间件
-expressApp.use(express.json());
-expressApp.use(express.urlencoded({ extended: true }));
-
-// 静态文件服务
-expressApp.use(express.static(path.join(__dirname, '../frontend/dist')));
-
-// 启动Python后端
-let pythonProcess;
-
-function startPythonBackend() {
-  pythonProcess = PythonShell.run('main.py', {
-    scriptPath: path.join(__dirname, '..'),
-    args: ['--host', '0.0.0.0', '--port', port.toString()]
-  }, (err) => {
-    if (err) {
-      console.error('Python backend error:', err);
-    }
-  });
-
-  pythonProcess.on('message', (message) => {
-    console.log('Python backend message:', message);
-  });
-}
-
-// 停止Python后端
-function stopPythonBackend() {
-  if (pythonProcess) {
-    pythonProcess.kill();
+function log(message) {
+  try {
+    const logPath = path.join(app.getPath('userData'), 'main-process.log');
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${message}\n`);
+  } catch (_error) {
+    // Ignore logging failures.
   }
 }
 
-// 创建主窗口
-let mainWindow;
+function getFrontendEntry() {
+  return path.join(app.getAppPath(), 'frontend', 'dist', 'index.html');
+}
+
+function getBackendCommand() {
+  if (app.isPackaged) {
+    return {
+      command: path.join(process.resourcesPath, 'backend-dist', 'ScriptMasterBackend.exe'),
+      args: ['--host', '127.0.0.1', '--port', String(port)],
+      cwd: path.join(process.resourcesPath, 'backend-dist'),
+    };
+  }
+
+  return {
+    command: 'python',
+    args: ['main.py', '--host', '127.0.0.1', '--port', String(port)],
+    cwd: path.join(app.getAppPath(), 'backend'),
+  };
+}
+
+function startBackend() {
+  const backend = getBackendCommand();
+  log(`Starting backend: ${backend.command} ${backend.args.join(' ')} cwd=${backend.cwd}`);
+  backendProcess = spawn(backend.command, backend.args, {
+    cwd: backend.cwd,
+    windowsHide: true,
+  });
+
+  backendProcess.stdout?.on('data', (data) => {
+    log(`[backend stdout] ${String(data).trim()}`);
+  });
+
+  backendProcess.stderr?.on('data', (data) => {
+    log(`[backend stderr] ${String(data).trim()}`);
+  });
+
+  backendProcess.on('error', (error) => {
+    log(`Failed to start backend: ${error.stack || error.message}`);
+  });
+
+  backendProcess.on('exit', (code) => {
+    log(`Backend exited with code ${code}`);
+    backendProcess = null;
+  });
+}
+
+function stopBackend() {
+  if (backendProcess) {
+    backendProcess.kill();
+    backendProcess = null;
+  }
+}
+
+async function waitForBackend(retries = 90, delayMs = 1000) {
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    try {
+      const response = await fetch(backendReadyUrl);
+      if (response.ok) {
+        log(`Backend ready after ${attempt + 1} attempts`);
+        return;
+      }
+    } catch (_error) {
+      // Backend is still starting.
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+
+  throw new Error('Backend did not become ready in time.');
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -51,46 +96,57 @@ function createWindow() {
     height: 800,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      nodeIntegration: true,
-      contextIsolation: false
-    }
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
   });
 
-  // 加载前端应用
-  mainWindow.loadURL(`http://localhost:${port}`);
+  mainWindow.loadFile(getFrontendEntry());
 
-  // 打开开发者工具
-  // mainWindow.webContents.openDevTools();
-
-  mainWindow.on('closed', function () {
+  mainWindow.on('closed', () => {
     mainWindow = null;
   });
 }
 
-// 应用启动时
-app.on('ready', () => {
-  // 启动Python后端
-  startPythonBackend();
-  
-  // 延迟创建窗口，确保后端已启动
-  setTimeout(createWindow, 2000);
+app.on('ready', async () => {
+  log(`App ready. isPackaged=${app.isPackaged} appPath=${app.getAppPath()} resourcesPath=${process.resourcesPath}`);
+  startBackend();
+
+  try {
+    await waitForBackend();
+    createWindow();
+  } catch (error) {
+    log(`Startup failed: ${error.stack || error.message}`);
+    app.quit();
+  }
 });
 
-// 应用关闭时
 app.on('quit', () => {
-  stopPythonBackend();
+  stopBackend();
 });
 
-// 所有窗口关闭时
-app.on('window-all-closed', function () {
+app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
 });
 
-// 激活应用时
-app.on('activate', function () {
+app.on('activate', () => {
   if (mainWindow === null) {
     createWindow();
   }
+});
+
+ipcMain.handle('open-external', async (_event, url) => {
+  await shell.openExternal(url);
+});
+
+ipcMain.handle('get-app-version', () => app.getVersion());
+
+process.on('uncaughtException', (error) => {
+  log(`uncaughtException: ${error.stack || error.message}`);
+});
+
+process.on('unhandledRejection', (error) => {
+  log(`unhandledRejection: ${error && error.stack ? error.stack : error}`);
 });

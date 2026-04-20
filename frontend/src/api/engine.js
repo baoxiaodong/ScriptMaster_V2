@@ -1,6 +1,7 @@
 import axios from 'axios';
+import { apiUrl } from './base';
 
-const API_BASE = '/api';
+const API_BASE = apiUrl('/api');
 
 // Mock数据
 const mockData = {

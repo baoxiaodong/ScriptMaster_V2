@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import io
 import logging
@@ -477,4 +478,9 @@ async def test_prompt_stream(
 # =============================================================================
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    parser = argparse.ArgumentParser(description="ScriptMaster backend server")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8000)
+    args = parser.parse_args()
+
+    uvicorn.run(app, host=args.host, port=args.port, reload=False)

@@ -294,6 +294,7 @@ import { ref, computed, onMounted, watch, inject } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { engine } from '../api/engine'
+import { apiUrl } from '../api/base'
 import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
 import { throttle, isMockMode, createErrorMessage } from '../utils'
@@ -644,7 +645,7 @@ const diffHtml = computed(() => {
 
 const loadPrompt = async () => {
   try {
-    const res = await axios.get(`/api/script/prompts/${currentKey.value}`)
+    const res = await axios.get(apiUrl(`/api/script/prompts/${currentKey.value}`))
     if (res.data && res.data.status === 'success') {
       officialPrompt.value = res.data.official_prompt || ''
       const localDraft = localStorage.getItem(`prompt_draft_${currentKey.value}`)
@@ -695,7 +696,7 @@ const handleDeploy = async () => {
   isDeploying.value = true
   try {
     const formData = new FormData(); formData.append('key', currentKey.value); formData.append('content', editBuffer.value);
-    await axios.post("/api/script/prompts/update", formData);
+    await axios.post(apiUrl('/api/script/prompts/update'), formData);
     ElMessage.success("🚀 部署成功！");
     localStorage.removeItem(`prompt_draft_${currentKey.value}`); saveStatus.value = "已与云端同步";
   } catch (err) { 
@@ -711,7 +712,7 @@ const handleDeploy = async () => {
 const handleReset = () => {
   ElMessageBox.confirm('是否还原？草稿会丢失！', '还原确认', { type: 'warning' })
   .then(async () => {
-    await axios.post(`/api/script/prompts/reset/${currentKey.value}`);
+    await axios.post(apiUrl(`/api/script/prompts/reset/${currentKey.value}`));
     localStorage.removeItem(`prompt_draft_${currentKey.value}`); loadPrompt();
   }).catch(() => {})
 }

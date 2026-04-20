@@ -114,6 +114,7 @@ import PromptStudio from './components/PromptStudio.vue';
 import { ElMessage } from 'element-plus';
 import { Sunny, Moon, ArrowLeft, ArrowRight } from '@element-plus/icons-vue';
 import axios from 'axios';
+import { apiUrl } from './api/base';
 const activeTab = ref('novel');
 const isSaving = ref(false);
 const isDarkMode = ref(false);
@@ -220,7 +221,7 @@ const saveConfig = async () => {
     formData.append('api_key', config.apiKey);
     formData.append('model_name', config.modelName);
     formData.append('base_url', config.baseUrl);
-    const res = await axios.post('/api/config/verify', formData);
+    const res = await axios.post(apiUrl('/api/config/verify'), formData);
     if (res.data.status === 'success') {
       ElMessage.success('🎉 引擎点火成功！AI 核心已上线！');
       // 只有在连接成功后才保存配置

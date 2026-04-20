@@ -21,6 +21,9 @@ lerna-debug.log*
 
 # Build outputs
 dist/
+dist-electron/
+backend-dist/
+build/
 dist-ssr/
 *.local
 
@@ -45,6 +48,7 @@ dist-ssr/
 # Logs
 logs
 *.log
+*.err.log
 
 # Coverage directory used by tools like istanbul
 coverage/

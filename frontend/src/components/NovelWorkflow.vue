@@ -20,7 +20,7 @@
     <transition name="fade-slide" mode="out-in">
       <div v-if="activeStep === 0" class="glass-card">
         <el-upload
-          action="/api/upload_novel"
+          :action="uploadUrl"
           :show-file-list="false"
           :on-success="handleUploadSuccess"
           :on-error="handleUploadError"
@@ -589,6 +589,7 @@
 import { ref, computed, nextTick, watch, inject } from 'vue';
 import { v4 as uuidv4 } from 'uuid';
 import { engine } from '../api/engine';
+import { apiUrl } from '../api/base';
 import { ElMessage, ElMessageBox } from 'element-plus';
 
 // 获取全局配置
@@ -618,6 +619,8 @@ import {
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
+
+const uploadUrl = apiUrl('/api/upload_novel');
 
 const activeStep = ref(0);
 const totalEpisodes = ref(30);
