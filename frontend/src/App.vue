@@ -74,6 +74,39 @@
             <span v-if="!isSaving">⚡ 连通大模型引擎</span>
             <span v-else>正在建立连接...</span>
           </el-button>
+
+          <!-- 使用说明部分 -->
+          <div class="usage-guide">
+            <el-collapse v-model="activeUsagePanel">
+              <el-collapse-item title="📖 使用说明" name="1">
+                <div class="guide-content">
+                  <h4>文件格式要求：</h4>
+                  <ul>
+                    <li>上传Excel时，请确保包含章节标题和内容列</li>
+                    <li>第1列: 章节标题</li>
+                    <li>第2列: 章节内容</li>
+                  </ul>
+                  <h4>生成标准：</h4>
+                  <ul>
+                    <li>每集默认 ≥20 个镜头</li>
+                    <li>画面描述: 中文</li>
+                    <li>台词 & 音效: 英文</li>
+                  </ul>
+                </div>
+              </el-collapse-item>
+            </el-collapse>
+
+            <!-- 打开说明书按钮 -->
+            <el-button 
+              type="primary" 
+              plain 
+              class="open-manual-btn"
+              @click="openLocalManual"
+              style="margin-top: 16px; width: 100%"
+            >
+              📄 打开本地使用说明书
+            </el-button>
+          </div>
         </el-form>
         <div class="collapsed-sidebar-content" v-else>
           <div class="collapsed-logo">S</div>
@@ -117,6 +150,7 @@ import axios from 'axios';
 import { apiUrl } from './api/base';
 const activeTab = ref('novel');
 const isSaving = ref(false);
+const activeUsagePanel = ref(['1']); // 默认展开使用说明
 const isDarkMode = ref(false);
 const rememberConfig = ref(false);
 const sidebarCollapsed = ref(false);
@@ -242,6 +276,17 @@ const saveConfig = async () => {
     ElMessage.error('系统离线：请检查后端服务是否启动');
   } finally {
     isSaving.value = false;
+  }
+};
+
+// 打开本地使用说明书
+const openLocalManual = () => {
+  // 在Electron环境中，使用shell.openPath打开本地文件
+  if (window.electron) {
+    window.electron.openLocalFile('用户说明手册.md');
+  } else {
+    // 在Web环境中，提示用户手动打开
+    ElMessage.info('请在安装目录中找到并打开 "用户说明手册.md" 文件');
   }
 };
 </script>
@@ -400,6 +445,44 @@ body {
   color: white;
   transform: translateY(-2px);
   box-shadow: 0 8px 20px rgba(227, 112, 13, 0.3);
+}
+
+/* 使用说明部分样式 */
+.usage-guide {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border-color);
+}
+
+.guide-content {
+  padding: 16px;
+  background: var(--input-bg);
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.guide-content h4 {
+  margin-top: 0;
+  margin-bottom: 12px;
+  color: var(--text-main);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.guide-content ul {
+  margin: 0 0 16px 0;
+  padding-left: 20px;
+  color: var(--text-sub);
+}
+
+.guide-content li {
+  margin-bottom: 6px;
+}
+
+.open-manual-btn {
+  margin-top: 16px;
+  width: 100%;
 }
 
 /* 侧边栏伸缩按钮 */

@@ -59,7 +59,7 @@
               </div>
 
               <div class="card-editor-area">
-                <el-input v-model="threeActOptions[index]" type="textarea" @click.stop />
+                <el-input v-model="threeActOptions[index]" type="textarea" :rows="20" @click.stop />
               </div>
 
               <div class="card-bottom-action">
@@ -154,6 +154,7 @@
           <div class="spinner"></div>
           <div class="status-header"><h3>正在根据动态大纲渲染影视分镜...</h3></div>
           <p class="estimate-text">
+            <span class="spinner-small"></span>
             <strong>预计用时：{{ estimatedStoryboardTime }}</strong> (引擎已开启防堵塞保护)
           </p>
           <div class="cyber-terminal-mini">
@@ -291,7 +292,7 @@
                 <el-pagination
                   v-model:current-page="currentPage"
                   v-model:page-size="pageSize"
-                  :page-sizes="[20, 50, 100, 200]"
+                  :page-sizes="[15, 25, 35, 50]"
                   layout="total, sizes, prev, pager, next, jumper"
                   :total="filteredData.length"
                   @size-change="handleSizeChange"
@@ -306,7 +307,7 @@
 
     <el-dialog v-model="immersiveDialogVisible" :title="`✏️ 沉浸精修 - 方案 ${['A', 'B', 'C'][currentEditIndex]}`" fullscreen destroy-on-close>
       <div class="immersive-editor-container">
-        <el-input v-model="tempEditContent" type="textarea" class="immersive-textarea" placeholder="在这里尽情挥洒灵感..." />
+        <el-input v-model="tempEditContent" type="textarea" :rows="30" class="immersive-textarea" placeholder="在这里尽情挥洒灵感..." />
       </div>
       <template #footer>
         <span class="dialog-footer">
@@ -601,7 +602,7 @@
   border-radius: 16px;
   display: flex;
   flex-direction: column;
-  min-height: 520px;
+  min-height: 600px;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
   box-shadow: 0 4px 12px rgba(0,0,0,0.05);
@@ -623,7 +624,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px 24px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--border-color);
   background: var(--panel-bg);
   border-radius: 14px 14px 0 0;
@@ -652,21 +653,27 @@
 
 .card-editor-area {
   flex: 1;
-  padding: 24px;
+  padding: 20px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .card-editor-area .el-textarea {
-  height: 100%;
+  flex: 1;
+  height: 100% !important;
+  min-height: 0;
 }
 
 .card-editor-area .el-textarea__wrapper {
-  height: 100%;
+  height: 100% !important;
   background: transparent;
   border: none;
   box-shadow: none;
   resize: none;
   border-radius: 8px;
+  min-height: 0;
+  min-height: 300px !important;
 }
 
 .card-editor-area .el-textarea__inner {
@@ -674,10 +681,12 @@
   line-height: 1.6;
   color: var(--text-main);
   padding: 0;
+  height: 100% !important;
+  min-height: 300px !important;
 }
 
 .card-bottom-action {
-  padding: 20px 24px;
+  padding: 16px 20px;
   border-top: 1px solid var(--border-color);
   background: var(--panel-bg);
   border-radius: 0 0 14px 14px;
@@ -898,8 +907,9 @@
   border: none !important;
   border-radius: 12px;
   background: var(--input-bg) !important;
-  padding: 32px !important;
+  padding: 16px !important;
   box-shadow: none !important;
+  min-height: calc(100vh - 200px) !important;
 }
 
 .immersive-textarea .el-textarea__inner {
@@ -1855,7 +1865,7 @@ const showPagination = ref(false); // 控制是否显示分页
 
 // 新增：分页相关
 const currentPage = ref(1);
-const pageSize = ref(20);
+const pageSize = ref(15);
 const progressMsg = ref('');
 const progressVal = ref(0);
 const currentTaskId = ref('');
@@ -1934,6 +1944,8 @@ const goToStep4AndGenerate = () => {
 // 🚀 核心修复：史诗级增强版的切割算法！
 const generateThreeActs = () => {
   if (!creativeIdea.value) return ElMessage.warning("请填写创意");
+  // 🔴 验证API Key
+  if (!validateApiKey()) return;
   // 🔴 重置任务阻断标记，开始新任务
   isTaskStopped.value = false;
   isGenerating.value = true; activeStep.value = 1; tempActsText.value = ""; threeActOptions.value = []; progressMsg.value = ""; progressVal.value = 0;
@@ -1943,25 +1955,24 @@ const generateThreeActs = () => {
   const estimateTargetLength = Math.max(1500, creativeIdea.value.length * 8);
   
   const startTime = Date.now();
-  estimatedTime.value = "计算中...";
+  estimatedTime.value = "神经引擎预热中...";
   if(timer) clearInterval(timer);
   timer = setInterval(() => {
     const elapsedTime = (Date.now() - startTime) / 1000;
-    const currentLength = tempActsText.value.length;
+    const progress = progressVal.value / 100;
     
-    if (currentLength > 0) {
-      const progress = Math.min(currentLength / estimateTargetLength, 0.99);
-      if (progress > 0 && progress < 1) {
-        const totalEst = elapsedTime / progress;
-        const remaining = Math.max(0, totalEst - elapsedTime);
-        // 直接显示为分钟
-      estimatedTime.value = `约 ${Math.ceil(remaining / 60)} 分钟`;
-        progressVal.value = Math.floor(progress * 100);
+    if (progress > 0 && progress < 1) {
+      const totalEst = elapsedTime / progress;
+      const remaining = Math.max(0, totalEst - elapsedTime);
+      if (remaining < 60) {
+        estimatedTime.value = `约 ${Math.ceil(remaining)} 秒`;
       } else {
-        estimatedTime.value = `已用时 ${Math.ceil(elapsedTime / 60)} 分钟...`;
+        estimatedTime.value = `约 ${Math.ceil(remaining / 60)} 分钟 ${Math.ceil(remaining % 60)} 秒`;
       }
+    } else if (progress === 0) {
+      estimatedTime.value = `已用时 ${Math.ceil(elapsedTime / 60)} 分钟 ${Math.ceil(elapsedTime % 60)} 秒...`;
     } else {
-      estimatedTime.value = `已用时 ${Math.ceil(elapsedTime / 60)} 分钟...`;
+      estimatedTime.value = `处理完成，总用时 ${Math.ceil(elapsedTime / 60)} 分钟 ${Math.ceil(elapsedTime % 60)} 秒`;
     }
   }, 1000);
   
@@ -2006,7 +2017,8 @@ const generateThreeActs = () => {
       ElMessage.error('生成失败，请检查配置后重试'); 
       activeStep.value = 0; 
       clearInterval(timer); 
-    }
+    },
+    config
   );
 };
 
@@ -2019,7 +2031,7 @@ const generateOutline = () => {
   currentTaskId.value = `task_${uuidv4().slice(0, 8)}`;
   
   const startTime = Date.now();
-  estimatedTime.value = "计算中...";
+  estimatedTime.value = "神经引擎预热中...";
   if(timer) clearInterval(timer);
   timer = setInterval(() => {
     const elapsedTime = (Date.now() - startTime) / 1000;
@@ -2027,12 +2039,17 @@ const generateOutline = () => {
     if (progress > 0 && progress < 1) {
       const totalEst = elapsedTime / progress;
       const remaining = Math.max(0, totalEst - elapsedTime);
-      // 直接显示为分钟
-      estimatedTime.value = `约 ${Math.ceil(remaining / 60)} 分钟`;
+      if (remaining < 60) {
+        estimatedTime.value = `约 ${Math.ceil(remaining)} 秒`;
+      } else {
+        estimatedTime.value = `约 ${Math.ceil(remaining / 60)} 分钟 ${Math.ceil(remaining % 60)} 秒`;
+      }
+    } else if (progress === 0) {
+      estimatedTime.value = `已用时 ${Math.ceil(elapsedTime / 60)} 分钟 ${Math.ceil(elapsedTime % 60)} 秒...`;
     } else {
-      estimatedTime.value = `已用时 ${Math.ceil(elapsedTime / 60)} 分钟...`;
+      estimatedTime.value = `处理完成，总用时 ${Math.ceil(elapsedTime / 60)} 分钟 ${Math.ceil(elapsedTime % 60)} 秒`;
     }
-  }, 2000);
+  }, 1000);
   
   engine.fetchStream('script/generate_outline', { 
     task_id: currentTaskId.value, act_structure: threeActOptions.value[selectedActIndex.value], total_episodes: totalEpisodes.value 
@@ -2092,12 +2109,17 @@ const generateStoryboard = () => {
     if (progress > 0 && progress < 1) {
       const totalEst = elapsedTime / progress;
       const remaining = Math.max(0, totalEst - elapsedTime);
-      // 直接显示为分钟
-      estimatedStoryboardTime.value = `约 ${Math.ceil(remaining / 60)} 分钟`;
+      if (remaining < 60) {
+        estimatedStoryboardTime.value = `约 ${Math.ceil(remaining)} 秒`;
+      } else {
+        estimatedStoryboardTime.value = `约 ${Math.ceil(remaining / 60)} 分钟 ${Math.ceil(remaining % 60)} 秒`;
+      }
+    } else if (progress === 0) {
+      estimatedStoryboardTime.value = `已用时 ${Math.ceil(elapsedTime / 60)} 分钟 ${Math.ceil(elapsedTime % 60)} 秒...`;
     } else {
-      estimatedStoryboardTime.value = `已用时 ${Math.ceil(elapsedTime / 60)} 分钟...`;
+      estimatedStoryboardTime.value = `处理完成，总用时 ${Math.ceil(elapsedTime / 60)} 分钟 ${Math.ceil(elapsedTime % 60)} 秒`;
     }
-  }, 2000);
+  }, 1000);
   
   engine.fetchStream('script/generate_storyboard', { 
     task_id: currentTaskId.value, outline_text: scriptOutline.value, total_episodes: totalEpisodes.value 

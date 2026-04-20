@@ -58,45 +58,47 @@
         </el-upload>
 
         <div v-if="previewData.length" class="preview-box fade-in">
-          <div class="box-header"><span class="dot"></span> 数据结构嗅探完毕 (共 {{ totalRows }} 章节，Top 10 预览)</div>
-
-          <el-table
-            :data="previewData"
-            border
-            stripe
-            class="premium-table"
-            style="width: 100%; border-radius: 8px; overflow: hidden"
-            :header-cell-style="{ background: 'var(--input-bg)', color: 'var(--text-main)', fontWeight: 'bold' }"
-          >
-            <el-table-column
-              v-for="(col, index) in tableCols"
-              :key="index"
-              :label="getColumnLabel(col)"
-              :min-width="index === 0 ? '150' : '400'"
-            >
-              <template #default="scope">
-                <div class="cell-content">
-                  <div class="text-clamp">{{ scope.row[index] }}</div>
-                  <el-button
-                    v-if="scope.row[index] && scope.row[index].toString().length > 80"
-                    type="primary"
-                    link
-                    size="small"
-                    @click="openFullText(scope.row[index])"
-                    style="margin-top: 6px; font-weight: bold"
-                  >
-                    <el-icon style="margin-right: 4px"><ZoomIn /></el-icon>查看全文
-                  </el-button>
-                </div>
-              </template>
-            </el-table-column>
-          </el-table>
-
-          <div class="action-bar">
+          <div class="action-bar" style="margin-bottom: 16px;">
             <el-button class="btn-hermes" @click="activeStep = 1">
               确认数据无误，下一步 <el-icon class="el-icon--right"><ArrowRight /></el-icon>
             </el-button>
           </div>
+          
+          <el-collapse v-model="activePreviewPanel">
+            <el-collapse-item title="数据结构嗅探完毕 (共 {{ totalRows }} 章节，Top 10 可折叠预览)" name="1">
+              <el-table
+                :data="previewData"
+                border
+                stripe
+                class="premium-table"
+                style="width: 100%; border-radius: 8px; overflow: hidden"
+                :header-cell-style="{ background: 'var(--input-bg)', color: 'var(--text-main)', fontWeight: 'bold' }"
+              >
+                <el-table-column
+                  v-for="(col, index) in tableCols"
+                  :key="index"
+                  :label="getColumnLabel(col)"
+                  :min-width="index === 0 ? '150' : '400'"
+                >
+                  <template #default="scope">
+                    <div class="cell-content">
+                      <div class="text-clamp">{{ scope.row[index] }}</div>
+                      <el-button
+                        v-if="scope.row[index] && scope.row[index].toString().length > 80"
+                        type="primary"
+                        link
+                        size="small"
+                        @click="openFullText(scope.row[index])"
+                        style="margin-top: 6px; font-weight: bold"
+                      >
+                        <el-icon style="margin-right: 4px"><ZoomIn /></el-icon>查看全文
+                      </el-button>
+                    </div>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-collapse-item>
+          </el-collapse>
         </div>
       </div>
 
@@ -147,7 +149,7 @@
           />
         </div>
 
-        <div class="action-bar split" v-if="!isGenerating && outlineText">
+        <div class="action-bar split">
           <div>
             <el-button plain @click="goBack">返回上一步</el-button>
             <el-button
@@ -158,9 +160,9 @@
               "
               >重新上传</el-button
             >
-            <el-button type="primary" plain @click="exportWord">📥 导出大纲为 Word</el-button>
+            <el-button type="primary" plain @click="exportWord" v-if="!isGenerating && outlineText">📥 导出大纲为 Word</el-button>
           </div>
-          <el-button class="btn-hermes" @click="activeStep = 2">大纲核对无误，开始分镜渲染</el-button>
+          <el-button class="btn-hermes" @click="activeStep = 2" v-if="!isGenerating && outlineText">大纲核对无误，开始分镜渲染</el-button>
         </div>
       </div>
 
@@ -177,6 +179,7 @@
           <div class="spinner"></div>
           <h3>神经计算群组正在渲染分镜...</h3>
           <p class="estimate-text">
+            <span class="spinner-small"></span>
             <strong>预计用时：{{ estimatedStoryboardTime }}</strong> (系统已开启多线程防堵塞保护)
           </p>
           <p class="cyber-text">{{ progressMsg }}</p>
@@ -266,6 +269,23 @@
               </div>
 
               <div v-else-if="layoutMode === 'av'" class="av-script-view">
+                <div class="chapter-header" v-if="currentEpisodeTab">
+                  <div class="chapter-title">
+                    <span class="chapter-number">{{ getChapterNumber(currentEpisodeTab) }}</span>
+                    {{ getChapterTitle(currentEpisodeTab) }}
+                  </div>
+                  <div class="chapter-info">
+                    <span class="info-item">
+                      <el-icon><Film /></el-icon>
+                      共 {{ filteredData.length }} 个分镜
+                    </span>
+                    <span class="info-item" v-if="uniqueScenes.length > 0">
+                      <el-icon><Location /></el-icon>
+                      {{ uniqueScenes.length }} 个场景
+                    </span>
+                  </div>
+                </div>
+                
                 <div class="av-scene-item" v-for="(scene, index) in pagedData" :key="index">
                   
                   <div class="scene-meta-axis">
@@ -301,7 +321,7 @@
                 <el-pagination
                   v-model:current-page="currentPage"
                   v-model:page-size="pageSize"
-                  :page-sizes="[20, 50, 100, 200]"
+                  :page-sizes="[10, 15, 20, 30, 50]"
                   layout="total, sizes, prev, pager, next, jumper"
                   :total="filteredData.length"
                   @size-change="handleSizeChange"
@@ -430,30 +450,77 @@
 .av-script-view {
   display: flex;
   flex-direction: column;
-  gap: 32px;
-  max-width: 1200px;
+  gap: 24px;
+  max-width: 900px;
   margin: 0 auto;
+  padding: 20px 0;
+}
+
+/* 章节标题样式 */
+.chapter-header {
+  background: linear-gradient(135deg, var(--hermes-primary), #ff9800);
+  color: white;
+  padding: 24px 28px;
+  border-radius: 12px;
+  margin-bottom: 8px;
+  box-shadow: 0 4px 12px rgba(227, 112, 13, 0.2);
+}
+
+.chapter-title {
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 12px;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.chapter-number {
+  font-size: 18px;
+  opacity: 0.9;
+  font-weight: 600;
+  padding: 4px 12px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+}
+
+.chapter-info {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  opacity: 0.95;
+}
+
+.info-item .el-icon {
+  font-size: 16px;
 }
 
 .av-scene-item {
   display: flex;
-  gap: 24px;
+  gap: 20px;
   position: relative;
-  padding-bottom: 32px;
+  padding: 24px;
+  background: var(--input-bg);
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  transition: all 0.3s ease;
 }
 
-/* 左侧时间线轴线 */
-.av-scene-item::after {
-  content: '';
-  position: absolute;
-  left: 36px; /* 对齐左侧中心 */
-  top: 40px;
-  bottom: 0;
-  width: 2px;
-  background: var(--border-color);
-  z-index: 1;
+.av-scene-item:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  border-color: var(--hermes-primary);
 }
-.av-scene-item:last-child::after {
+
+/* 移除原有的时间线轴线，改用卡片式设计 */
+.av-scene-item::after {
   display: none;
 }
 
@@ -463,102 +530,122 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 12px;
+  gap: 16px;
   z-index: 2;
+  padding: 8px 0;
 }
 
 .shot-badge {
-  background: var(--hermes-primary);
+  background: linear-gradient(135deg, var(--hermes-primary), #ff9800);
   color: white;
   font-family: 'Courier New', Courier, monospace;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 900;
-  padding: 8px 16px;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(227, 112, 13, 0.3);
-  letter-spacing: 1px;
+  padding: 10px 18px;
+  border-radius: 24px;
+  box-shadow: 0 2px 8px rgba(227, 112, 13, 0.2);
+  letter-spacing: 0.5px;
+  min-width: 80px;
+  text-align: center;
 }
 
 .location-tag {
   display: flex;
-  align-items: flex-start;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
   color: var(--text-sub);
-  background: var(--input-bg);
-  padding: 8px 12px;
-  border-radius: 6px;
+  background: var(--panel-bg);
+  padding: 10px 14px;
+  border-radius: 10px;
   border: 1px solid var(--border-color);
-  line-height: 1.4;
+  line-height: 1.5;
+  width: 100%;
 }
 .location-tag .el-icon {
-  margin-top: 2px;
   color: var(--hermes-primary);
+  font-size: 16px;
+  flex-shrink: 0;
 }
 
 .scene-content-split {
   flex: 1;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
-  background: white;
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.04);
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  overflow: visible;
   transition: all 0.3s;
 }
 .scene-content-split:hover {
-  border-color: rgba(227, 112, 13, 0.4);
-  box-shadow: 0 8px 30px rgba(227, 112, 13, 0.1);
   transform: translateY(-2px);
 }
 
 .av-col {
   display: flex;
   flex-direction: column;
+  background: var(--panel-bg);
+  border-radius: 10px;
+  padding: 18px;
+  border: 1px solid var(--border-color);
+  transition: all 0.3s ease;
+}
+
+.av-col:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
 }
 
 .visual-col {
-  border-right: 1px dashed var(--border-color);
+  border-right: none;
 }
 
 .col-header {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 16px 20px;
-  background: var(--input-bg);
+  margin-bottom: 14px;
+  padding-bottom: 10px;
   border-bottom: 1px solid var(--border-color);
-  font-weight: 700;
+  background: transparent;
+  font-weight: 600;
   font-size: 14px;
   color: var(--text-main);
 }
 
 .header-icon-wrap {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   display: flex;
-  justify-content: center;
   align-items: center;
+  justify-content: center;
   color: white;
+  font-size: 16px;
+  flex-shrink: 0;
 }
-.v-bg { background: linear-gradient(135deg, #3b82f6, #2563eb); }
-.a-bg { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
+.v-bg { background: linear-gradient(135deg, #4f46e5, #8b5cf6); }
+.a-bg { background: linear-gradient(135deg, #16a34a, #84cc16); }
 
 .col-body {
-  padding: 20px;
+  padding: 0;
   font-size: 14px;
   line-height: 1.8;
   color: var(--text-main);
   white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 40px;
 }
 
 /* 台词区稍微做一下背景区分，符合剧本视觉习惯 */
 .dialogue-text {
-  background: rgba(0,0,0,0.015);
+  color: var(--hermes-primary);
   font-weight: 500;
+  font-style: italic;
+  background: rgba(227, 112, 13, 0.03);
+  padding: 12px;
+  border-radius: 8px;
 }
 
 /* 响应式调整 */
@@ -572,15 +659,74 @@
   }
 }
 @media (max-width: 768px) {
+  .chapter-header {
+    padding: 16px 20px;
+    border-radius: 10px;
+  }
+  
+  .chapter-title {
+    font-size: 20px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .chapter-number {
+    font-size: 14px;
+    padding: 3px 10px;
+  }
+  
+  .chapter-info {
+    gap: 16px;
+  }
+  
+  .info-item {
+    font-size: 13px;
+  }
+  
+  .av-script-view {
+    max-width: 100%;
+    padding: 10px 0;
+    gap: 16px;
+  }
+  
   .av-scene-item {
     flex-direction: column;
     gap: 16px;
+    padding: 16px;
   }
   .av-scene-item::after { display: none; }
+  
   .scene-meta-axis {
     width: 100%;
     flex-direction: row;
     align-items: center;
+    justify-content: space-between;
+    padding: 0;
+  }
+  
+  .shot-badge {
+    min-width: auto;
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+  
+  .location-tag {
+    flex: 1;
+    max-width: 60%;
+  }
+  
+  .scene-content-split {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .av-col {
+    padding: 16px;
+  }
+  
+  .visual-col {
+    border-right: none;
   }
 }
 </style>
@@ -658,8 +804,9 @@ const episodeSearch = ref('');
 const layoutMode = ref('av');
 
 const currentPage = ref(1);
-const pageSize = ref(50); 
-const showPagination = ref(false); 
+const pageSize = ref(15); 
+const showPagination = ref(false);
+const activePreviewPanel = ref(['1']); 
 
 const getColumnLabel = (col) => {
   const strCol = String(col).trim();
@@ -807,6 +954,35 @@ const getSceneCount = (ep) => {
   return parseCSV(finalResults.value[ep]).data.length;
 };
 
+const getChapterNumber = (chapterName) => {
+  // 支持"第X集"、"第X章"、"第X节"等格式
+  const match = chapterName.match(/第(\d+)(集|章|节|幕)/);
+  if (match) {
+    return `第${match[1]}${match[2]}`;
+  }
+  // 支持纯数字章节号
+  const numMatch = chapterName.match(/^(\d+)$/);
+  if (numMatch) {
+    return `第${numMatch[1]}集`;
+  }
+  return '';
+};
+
+const getChapterTitle = (chapterName) => {
+  // 先尝试匹配带格式的章节标题
+  const match = chapterName.match(/第\d+(集|章|节|幕)\s*(.*)/);
+  if (match) {
+    return match[2] || chapterName;
+  }
+  // 尝试匹配纯数字章节号
+  const numMatch = chapterName.match(/^(\d+)$/);
+  if (numMatch) {
+    return `第${numMatch[1]}集`;
+  }
+  // 其他情况直接返回原名称
+  return chapterName;
+};
+
 // ================= API 和 流程控制保持不变 =================
 const handleUploadSuccess = (res) => {
   previewData.value = res.preview; tableCols.value = res.columns; fullDataJson.value = res.full_data_json;
@@ -845,15 +1021,20 @@ const generateOutline = () => {
   globalTimer = setInterval(() => {
     const elapsedTime = (Date.now() - startTime) / 1000;
     const progress = progressVal.value / 100;
-    if (progress > 0.01) {
+    if (progress > 0 && progress < 1) {
       const totalEstimatedTime = elapsedTime / progress;
       const remainingTime = totalEstimatedTime - elapsedTime;
-      if (remainingTime > 0 && remainingTime < 3600) {
-        if (remainingTime > 60) estimatedTime.value = `约 ${Math.round(remainingTime / 60)} 分钟 ${Math.round(remainingTime % 60)} 秒`;
-        else estimatedTime.value = `约 ${Math.round(remainingTime)} 秒`;
+      if (remainingTime < 60) {
+        estimatedTime.value = `约 ${Math.ceil(remainingTime)} 秒`;
+      } else {
+        estimatedTime.value = `约 ${Math.ceil(remainingTime / 60)} 分钟 ${Math.ceil(remainingTime % 60)} 秒`;
       }
+    } else if (progress === 0) {
+      estimatedTime.value = `已用时 ${Math.ceil(elapsedTime / 60)} 分钟 ${Math.ceil(elapsedTime % 60)} 秒...`;
+    } else {
+      estimatedTime.value = `处理完成，总用时 ${Math.ceil(elapsedTime / 60)} 分钟 ${Math.ceil(elapsedTime % 60)} 秒`;
     }
-  }, 2000);
+  }, 1000);
 
   engine.fetchStream('generate_outline', { task_id: currentTaskId.value, novel_data_json: fullDataJson.value, total_episodes: totalEpisodes.value },
     (chunk) => { outlineText.value += chunk; },
@@ -861,13 +1042,18 @@ const generateOutline = () => {
       progressMsg.value = msg; progressVal.value = val;
       const elapsedTime = (Date.now() - startTime) / 1000;
       const progress = val / 100;
-      if (progress > 0.01) {
+      if (progress > 0 && progress < 1) {
         const totalEstimatedTime = elapsedTime / progress;
         const remainingTime = totalEstimatedTime - elapsedTime;
-        if (remainingTime > 0 && remainingTime < 3600) {
-          if (remainingTime > 60) estimatedTime.value = `约 ${Math.round(remainingTime / 60)} 分钟 ${Math.round(remainingTime % 60)} 秒`;
-          else estimatedTime.value = `约 ${Math.round(remainingTime)} 秒`;
+        if (remainingTime < 60) {
+          estimatedTime.value = `约 ${Math.ceil(remainingTime)} 秒`;
+        } else {
+          estimatedTime.value = `约 ${Math.ceil(remainingTime / 60)} 分钟 ${Math.ceil(remainingTime % 60)} 秒`;
         }
+      } else if (progress === 0) {
+        estimatedTime.value = `已用时 ${Math.ceil(elapsedTime / 60)} 分钟 ${Math.ceil(elapsedTime % 60)} 秒...`;
+      } else {
+        estimatedTime.value = `处理完成，总用时 ${Math.ceil(elapsedTime / 60)} 分钟 ${Math.ceil(elapsedTime % 60)} 秒`;
       }
     },
     () => {
@@ -878,7 +1064,8 @@ const generateOutline = () => {
     (err) => {
       ElMessage.error(err); isGenerating.value = false; outlineError.value = true; outlineText.value = err;
       if (globalTimer) { clearInterval(globalTimer); globalTimer = null; }
-    }
+    },
+    config
   );
 };
 
@@ -893,15 +1080,20 @@ const generateStoryboard = () => {
   globalTimer = setInterval(() => {
     const elapsedTime = (Date.now() - startTime) / 1000;
     const progress = progressVal.value / 100;
-    if (progress > 0.01) {
+    if (progress > 0 && progress < 1) {
       const totalEstimatedTime = elapsedTime / progress;
       const remainingTime = totalEstimatedTime - elapsedTime;
-      if (remainingTime > 0 && remainingTime < 3600) {
-        if (remainingTime > 60) estimatedStoryboardTime.value = `约 ${Math.round(remainingTime / 60)} 分钟 ${Math.round(remainingTime % 60)} 秒`;
-        else estimatedStoryboardTime.value = `约 ${Math.round(remainingTime)} 秒`;
+      if (remainingTime < 60) {
+        estimatedStoryboardTime.value = `约 ${Math.ceil(remainingTime)} 秒`;
+      } else {
+        estimatedStoryboardTime.value = `约 ${Math.ceil(remainingTime / 60)} 分钟 ${Math.ceil(remainingTime % 60)} 秒`;
       }
+    } else if (progress === 0) {
+      estimatedStoryboardTime.value = `已用时 ${Math.ceil(elapsedTime / 60)} 分钟 ${Math.ceil(elapsedTime % 60)} 秒...`;
+    } else {
+      estimatedStoryboardTime.value = `处理完成，总用时 ${Math.ceil(elapsedTime / 60)} 分钟 ${Math.ceil(elapsedTime % 60)} 秒`;
     }
-  }, 2000);
+  }, 1000);
 
   engine.fetchStream('generate_storyboard', { task_id: currentTaskId.value, outline_text: outlineText.value, total_episodes: totalEpisodes.value },
     (chunk) => {},
@@ -909,13 +1101,18 @@ const generateStoryboard = () => {
       progressMsg.value = msg; progressVal.value = val;
       const elapsedTime = (Date.now() - startTime) / 1000;
       const progress = val / 100;
-      if (progress > 0.01) {
+      if (progress > 0 && progress < 1) {
         const totalEstimatedTime = elapsedTime / progress;
         const remainingTime = totalEstimatedTime - elapsedTime;
-        if (remainingTime > 0 && remainingTime < 3600) {
-          if (remainingTime > 60) estimatedStoryboardTime.value = `约 ${Math.round(remainingTime / 60)} 分钟 ${Math.round(remainingTime % 60)} 秒`;
-          else estimatedStoryboardTime.value = `约 ${Math.round(remainingTime)} 秒`;
+        if (remainingTime < 60) {
+          estimatedStoryboardTime.value = `约 ${Math.ceil(remainingTime)} 秒`;
+        } else {
+          estimatedStoryboardTime.value = `约 ${Math.ceil(remainingTime / 60)} 分钟 ${Math.ceil(remainingTime % 60)} 秒`;
         }
+      } else if (progress === 0) {
+        estimatedStoryboardTime.value = `已用时 ${Math.ceil(elapsedTime / 60)} 分钟 ${Math.ceil(elapsedTime % 60)} 秒...`;
+      } else {
+        estimatedStoryboardTime.value = `处理完成，总用时 ${Math.ceil(elapsedTime / 60)} 分钟 ${Math.ceil(elapsedTime % 60)} 秒`;
       }
     },
     (results) => {
@@ -929,7 +1126,8 @@ const generateStoryboard = () => {
     (err) => {
       ElMessage.error(err); isGeneratingStoryboard.value = false;
       if (globalTimer) { clearInterval(globalTimer); globalTimer = null; }
-    }
+    },
+    config
   );
 };
 
