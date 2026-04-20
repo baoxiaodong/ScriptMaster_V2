@@ -65,3 +65,53 @@ export const createErrorMessage = (message) => {
     customClass: 'friendly-error-message'
   };
 };
+
+/**
+ * 判断是否属于可短暂重试的启动期网络错误
+ * @param {any} error - 请求异常
+ * @returns {boolean}
+ */
+export const isRetriableNetworkError = (error) => {
+  const message = String(error?.message || '');
+  const code = String(error?.code || '');
+  const status = error?.response?.status;
+
+  return (
+    !status ||
+    status >= 500 ||
+    code === 'ECONNREFUSED' ||
+    code === 'ERR_NETWORK' ||
+    message.includes('ECONNREFUSED') ||
+    message.includes('Network Error') ||
+    message.includes('Failed to fetch')
+  );
+};
+
+/**
+ * 带重试的异步请求，适合后端冷启动场景
+ * @param {Function} task - 返回 Promise 的函数
+ * @param {Object} options - 重试配置
+ * @returns {Promise<any>}
+ */
+export const retryAsync = async (task, options = {}) => {
+  const {
+    retries = 3,
+    delayMs = 600,
+    shouldRetry = () => true,
+  } = options;
+
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await task();
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retries || !shouldRetry(error, attempt)) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delayMs * (attempt + 1)));
+    }
+  }
+
+  throw lastError;
+};

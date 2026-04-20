@@ -16,7 +16,10 @@ export const engine = {
     console.log('🔧 [API] 开始验证配置:', config);
     
     const formData = new FormData();
-    Object.keys(config).forEach((key) => formData.append(key, config[key]));
+    formData.append('provider', config.provider || '');
+    formData.append('api_key', config.apiKey || '');
+    formData.append('model_name', config.modelName || '');
+    formData.append('base_url', config.baseUrl || '');
     try {
       const response = await axios.post(`${API_BASE}/config/verify`, formData);
       console.log('✅ [API] 配置验证成功:', response.data);

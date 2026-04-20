@@ -192,12 +192,11 @@
               <div class="hero-copy">
                 <span class="hero-kicker">{{ playgroundMeta.mode }}</span>
                 <h3>{{ playgroundMeta.title }}</h3>
-                <p>{{ playgroundMeta.description }}</p>
               </div>
               <div class="hero-tags">
                 <span class="hero-tag">{{ playgroundMeta.output }}</span>
                 <span class="hero-tag">{{ playgroundMeta.exportLabel }}</span>
-                <span class="hero-tag">{{ officialVars.length }} 个注入变量</span>
+                <span class="hero-tag">{{ officialVars.length }} 项输入</span>
               </div>
             </div>
 
@@ -211,22 +210,11 @@
             </div>
           </div>
 
-          <div v-if="requiresApiKey && !apiKeyReady" class="operation-hint warning">
-            <div class="hint-title">API Key 校验未通过</div>
-            <div class="hint-copy">当前是非 Mock 模式，开始演练前需要先在左侧配置并连接有效的 API Key。</div>
-          </div>
-
-          <div v-else-if="!isTesting" class="operation-hint">
-            <div class="hint-title">演练前检查</div>
-            <div class="hint-copy">非 Mock 模式会先校验 API Key。当前预计耗时 {{ estimatedTimeLabel }}，开始后可以随时点击停止按钮中断。</div>
-          </div>
-
           <div v-if="isTesting" class="testing-banner">
             <div class="testing-banner-left">
               <span class="loading-orb"></span>
               <div>
                 <strong>双屏演练进行中</strong>
-                <p>{{ testingStatusHint }}</p>
               </div>
             </div>
             <div class="testing-banner-right">
@@ -248,21 +236,6 @@
             </div>
           </div>
 
-          <div class="capability-strip">
-            <div class="capability-item">
-              <strong>全屏预览</strong>
-              <span>保留创作台、官方参考、版本审查和结果输出的全屏查看</span>
-            </div>
-            <div class="capability-item">
-              <strong>版本审查</strong>
-              <span>继续保留差异对比，并补充当前草稿与官方稿的变化统计</span>
-            </div>
-            <div class="capability-item">
-              <strong>导出交付</strong>
-              <span>长文本导出 Word，分镜脚本导出 Excel，双屏两侧均可单独导出</span>
-            </div>
-          </div>
-
           <div class="playground-grid">
             <section class="sandbox-panel">
               <div class="panel-head">
@@ -270,26 +243,8 @@
                   <span class="panel-kicker">Sandbox</span>
                   <h4>沙盒数据注入</h4>
                 </div>
-                <span class="panel-note">点击 A/B 后将同时驱动官方版与当前调优版</span>
-              </div>
-
-              <div class="flow-strip">
-                <div class="flow-step">
-                  <strong>1</strong>
-                  <span>注入测试数据</span>
-                </div>
-                <div class="flow-step">
-                  <strong>2</strong>
-                  <span>开始双屏演练</span>
-                </div>
-                <div class="flow-step">
-                  <strong>3</strong>
-                  <span>{{ playgroundMeta.output }}</span>
-                </div>
-                <div class="overview-card" :class="{ warm: isTesting }">
-                  <span class="overview-label">运行控制</span>
-                  <strong>{{ isTesting ? '可随时停止' : '待开始' }}</strong>
-                  <p>{{ isTesting ? '官方版与调优版正在并发演练，点击上方停止按钮即可中断。' : '开始后会显示动态加载动画、预计耗时和运行时长提示。' }}</p>
+                <div class="sandbox-status" :class="{ warning: requiresApiKey && !apiKeyReady }">
+                  <span>{{ requiresApiKey && !apiKeyReady ? '待配置 API Key' : isTesting ? '演练中' : '就绪' }}</span>
                 </div>
               </div>
 
@@ -345,17 +300,9 @@
             </section>
 
             <section class="compare-panel">
-              <div class="compare-overview">
-                <div class="overview-card warm">
-                  <span class="overview-label">对打模式</span>
-                  <strong>{{ playgroundMeta.mode }}</strong>
-                  <p>{{ playgroundMeta.compareHint }}</p>
-                </div>
-                <div class="overview-card">
-                  <span class="overview-label">导出能力</span>
-                  <strong>{{ playgroundMeta.exportLabel }}</strong>
-                  <p>{{ playgroundMeta.exportHint }}</p>
-                </div>
+              <div class="compare-toolbar">
+                <div class="compare-mode">{{ playgroundMeta.mode }}</div>
+                <div class="compare-export">{{ playgroundMeta.exportLabel }}</div>
               </div>
 
               <div class="screen-wall">
@@ -364,7 +311,6 @@
                     <div>
                       <span class="screen-badge">A 屏</span>
                       <h5>官方原版</h5>
-                      <p>基准参考输出</p>
                     </div>
                     <div class="screen-tools">
                       <el-button link class="tool-btn" @click="copyContent(testResults.official)">
@@ -401,7 +347,6 @@
                     <div>
                       <span class="screen-badge live">B 屏</span>
                       <h5>当前调优版</h5>
-                      <p>{{ isTesting ? '流式输出进行中' : '当前生效草案输出' }}</p>
                     </div>
                     <div class="screen-tools">
                       <el-button link class="tool-btn" @click="copyContent(testResults.draft)">
@@ -520,7 +465,7 @@ import { engine } from '../api/engine'
 import { apiUrl } from '../api/base'
 import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
-import { throttle, isMockMode, createErrorMessage } from '../utils'
+import { throttle, isMockMode, createErrorMessage, retryAsync, isRetriableNetworkError } from '../utils'
 import {
   Cpu,
   UploadFilled,
@@ -1114,7 +1059,10 @@ const diffHtml = computed(() => {
 
 const loadPrompt = async () => {
   try {
-    const res = await axios.get(apiUrl(`/api/script/prompts/${currentKey.value}`))
+    const res = await retryAsync(
+      () => axios.get(apiUrl(`/api/script/prompts/${currentKey.value}`)),
+      { retries: 6, delayMs: 800, shouldRetry: isRetriableNetworkError }
+    )
     if (res.data?.status !== 'success') {
       ElMessage.error(`资产加载失败：${res.data?.message || '未知错误'}`)
       return

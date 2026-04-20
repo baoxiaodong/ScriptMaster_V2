@@ -1811,6 +1811,7 @@ import axios from 'axios'
 import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
+import { retryAsync, isRetriableNetworkError } from '../utils'
 import { Film, Select, InfoFilled, Download, Files, FullScreen, Setting, VideoPlay, VideoCamera, Search, Refresh } from '@element-plus/icons-vue'
 
 // 注入全局配置
@@ -1886,7 +1887,10 @@ let timer = null;
 
 onMounted(async () => {
   try {
-    const res = await axios.get(apiUrl('/api/script/default_creative'));
+    const res = await retryAsync(
+      () => axios.get(apiUrl('/api/script/default_creative')),
+      { retries: 6, delayMs: 800, shouldRetry: isRetriableNetworkError }
+    );
     if (res.data && res.data.creative) creativeIdea.value = res.data.creative;
   } catch (err) { creativeIdea.value = "无法加载默认创意，请手动输入。"; }
 });
