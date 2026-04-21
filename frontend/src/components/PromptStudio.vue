@@ -201,9 +201,11 @@
             </div>
 
             <div class="playground-actions">
-              <el-button class="battle-btn" @click="runABTest" :loading="isTesting" v-if="!isTesting" :disabled="!canStartABTest">
-                <el-icon><Lightning /></el-icon> {{ playgroundMeta.action }}
-              </el-button>
+              <el-tooltip v-if="!isTesting" :disabled="canStartABTest" :content="abTestDisabledReason" placement="top">
+                <el-button class="battle-btn" @click="runABTest" :loading="isTesting" :disabled="!canStartABTest">
+                  <el-icon><Lightning /></el-icon> {{ playgroundMeta.action }}
+                </el-button>
+              </el-tooltip>
               <el-button class="battle-btn stop" @click="stopTest" v-else>
                 <el-icon><VideoPause /></el-icon> 停止双屏演练
               </el-button>
@@ -980,7 +982,12 @@ const missingVars = computed(() => {
 
 const requiresApiKey = computed(() => config?.provider !== 'Mock (演示)')
 const apiKeyReady = computed(() => !requiresApiKey.value || Boolean(config?.apiKey && config.apiKey.trim()))
-const canStartABTest = computed(() => apiKeyReady.value && missingVars.value.length === 0)
+const missingVarTokens = computed(() => missingVars.value.map((item) => `{${item}}`))
+const abTestDisabledReason = computed(() => {
+  if (!apiKeyReady.value) return '请先配置并连接 API Key'
+  return ''
+})
+const canStartABTest = computed(() => apiKeyReady.value)
 const supportsStoryboardCards = computed(() => storyboardPromptKeys.includes(currentKey.value))
 
 const diffStats = computed(() => {
@@ -1713,7 +1720,7 @@ const startTestTimer = () => {
 const runABTest = () => {
   if (!validateApiKey()) return
   if (missingVars.value.length > 0) {
-    ElMessage.error('必需变量缺失，无法开始演练')
+    ElMessage.error(`缺少 ${missingVarTokens.value.join(' / ')}，无法运行`)
     return
   }
 
@@ -2318,6 +2325,11 @@ onMounted(loadPrompt)
   background: #0f172a;
   padding: 10px 0;
   font-family: Consolas, Monaco, monospace;
+}
+
+.diff-panel .diff-box {
+  flex: none;
+  height: min(56vh, 560px);
 }
 
 .diff-stats {
