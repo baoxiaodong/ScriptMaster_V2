@@ -98,7 +98,7 @@
               <span class="save-status" :class="{ ok: missingVars.length === 0, danger: missingVars.length > 0 }">
                 <el-icon v-if="missingVars.length === 0"><CircleCheck /></el-icon>
                 <el-icon v-else><CircleClose /></el-icon>
-                {{ missingVars.length > 0 ? '变量缺失，请先修复' : saveStatus }}
+                {{ missingVars.length > 0 ? '变量缺失，请先修复' : displaySaveStatus }}
               </span>
               <el-button class="fullscreen-btn" plain size="small" @click="isFullscreen = true">
                 <el-icon><FullScreen /></el-icon> 全屏专注编写
@@ -259,6 +259,9 @@
                       <el-button v-if="testInputs[v]" link type="danger" @click="testInputs[v] = ''">
                         <el-icon><CircleClose /></el-icon> 清空
                       </el-button>
+                      <el-button v-if="shouldShowInputPreview(v)" link type="primary" @click="openInputPreview(v)">
+                        <el-icon><View /></el-icon> 预览全文
+                      </el-button>
 
                       <el-upload
                         v-if="supportsExcelImport(v)"
@@ -311,8 +314,40 @@
                 </div>
               </div>
 
-              <div v-if="supportsStoryboardCards && resultViewMode === 'cards'" class="storyboard-compare-list">
-                <article v-for="pair in alignedStoryboardPairs" :key="`pair-${pair.shot}`" class="storyboard-compare-row">
+              <div v-if="supportsStoryboardCards && resultViewMode === 'cards'" class="storyboard-shell">
+                <div class="storyboard-toolbar">
+                  <div class="storyboard-summary">
+                    共 {{ storyboardTotalShots }} 镜，当前展示 {{ storyboardRangeLabel }}
+                  </div>
+                  <div class="storyboard-toolbar-actions">
+                    <el-button plain size="small" :disabled="storyboardPage <= 1" @click="storyboardPage -= 1">
+                      上一页
+                    </el-button>
+                    <span class="storyboard-page-indicator">第 {{ storyboardPage }} / {{ storyboardPageCount }} 页</span>
+                    <el-button plain size="small" :disabled="storyboardPage >= storyboardPageCount" @click="storyboardPage += 1">
+                      下一页
+                    </el-button>
+                    <div class="storyboard-jump">
+                      <span>跳到镜号</span>
+                      <el-input-number
+                        v-model="storyboardJumpShot"
+                        :min="1"
+                        :max="storyboardTotalShots || 1"
+                        :controls="false"
+                        size="small"
+                      />
+                      <el-button plain size="small" @click="jumpToStoryboardShot">
+                        定位
+                      </el-button>
+                    </div>
+                    <el-button plain size="small" @click="resultViewMode = 'text'">
+                      查看全文
+                    </el-button>
+                  </div>
+                </div>
+
+                <div class="storyboard-compare-list">
+                <article v-for="pair in pagedStoryboardPairs" :key="`pair-${pair.shot}`" class="storyboard-compare-row">
                   <div class="compare-row-marker">SHOT {{ pair.shot }}</div>
                   <div class="compare-row-grid">
                     <section class="storyboard-shot-card">
@@ -350,7 +385,8 @@
                     </section>
                   </div>
                 </article>
-                <div v-if="!alignedStoryboardPairs.length" class="storyboard-empty">{{ getDisplayContent(testResults.draft || testResults.official) }}</div>
+                <div v-if="!pagedStoryboardPairs.length" class="storyboard-empty">{{ getDisplayContent(testResults.draft || testResults.official) }}</div>
+                </div>
               </div>
 
               <div v-else class="screen-wall">
@@ -386,7 +422,7 @@
                     </div>
                   </header>
                   <div class="screen-body">
-                    <pre class="screen-text">{{ getDisplayContent(testResults.official) }}</pre>
+                    <pre class="screen-text" :class="{ streaming: isTesting }">{{ getDisplayContent(testResults.official) }}</pre>
                   </div>
                 </article>
 
@@ -422,7 +458,7 @@
                     </div>
                   </header>
                   <div class="screen-body">
-                    <pre class="screen-text">{{ getDisplayContent(testResults.draft) }}</pre>
+                    <pre class="screen-text" :class="{ streaming: isTesting }">{{ getDisplayContent(testResults.draft) }}</pre>
                   </div>
                 </article>
               </div>
@@ -485,6 +521,61 @@
         </div>
       </template>
     </el-dialog>
+    <el-dialog v-model="inputPreviewVisible" :title="inputPreviewTitle" width="78%" center class="reader-dialog input-preview-dialog">
+      <div v-if="inputPreviewRows.length" class="input-preview-toolbar">
+        <el-input
+          v-model="inputPreviewSearch"
+          class="input-preview-search"
+          clearable
+          placeholder="按标题搜索"
+        />
+        <div v-if="isOutlinePreview" class="input-preview-jump">
+          <span>跳到集数</span>
+          <el-input-number
+            v-model="inputPreviewEpisode"
+            :min="1"
+            :max="inputPreviewMaxEpisode || 1"
+            :controls="false"
+            size="small"
+          />
+          <el-button plain size="small" @click="jumpToPreviewEpisode">定位</el-button>
+          <el-button v-if="inputPreviewFocusedEpisode" plain size="small" @click="inputPreviewFocusedEpisode = null">查看全部</el-button>
+        </div>
+        <div class="input-preview-meta">
+          共 {{ inputPreviewDataRows.length }} 条，当前 {{ filteredInputPreviewRows.length }} 条
+        </div>
+      </div>
+      <div v-if="inputPreviewRows.length" class="input-preview-table-wrap">
+        <table class="input-preview-table">
+          <thead>
+            <tr>
+              <th v-for="(cell, index) in inputPreviewRows[0]" :key="`head-${index}`">{{ cell || `列 ${index + 1}` }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in filteredInputPreviewRows" :key="`row-${row.id}`" :class="{ 'outline-act-row': row.isActRow }">
+              <td>
+                <div class="input-preview-title-cell">
+                  <span v-if="row.isActRow" class="input-preview-act-badge">ACT</span>
+                  {{ row.title }}
+                </div>
+              </td>
+              <td>
+                <div class="input-preview-cell" :class="{ expanded: isInputPreviewRowExpanded(row.id) }">
+                  {{ row.content }}
+                </div>
+                <div class="input-preview-row-actions">
+                  <el-button link type="primary" @click="toggleInputPreviewRow(row.id)">
+                    {{ isInputPreviewRowExpanded(row.id) ? '收起' : '展开全文' }}
+                  </el-button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <pre v-else class="reader-content input-preview-text">{{ inputPreviewContent }}</pre>
+    </el-dialog>
     <el-dialog v-model="resultFullscreenVisible" fullscreen :show-close="false" class="zen-dialog result-zen-dialog">
       <div class="zen-toolbar">
         <div class="zen-title"><el-icon><FullScreen /></el-icon> 结果全屏预览 - {{ resultFullscreenTitle }}</div>
@@ -513,7 +604,7 @@ import { engine } from '../api/engine'
 import { apiUrl } from '../api/base'
 import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
-import { throttle, isMockMode, createErrorMessage, retryAsync, isRetriableNetworkError } from '../utils'
+import { createErrorMessage, retryAsync, isRetriableNetworkError } from '../utils'
 import {
   Cpu,
   UploadFilled,
@@ -554,27 +645,27 @@ const assetMeta = {
   SCRIPT_SYSTEM: {
     short: '系统级人物设定与语气基准',
     type: '基座',
-    description: '用于定义创作总基调、人设边界与导演视角。',
+    description: '用于定义创作总基调、人物边界与导演视角。',
   },
   OUTLINE_TASK: {
     short: '大纲策略双屏流式对打',
     type: '流式',
-    description: '用沙盒小说数据注入后，比较官方版与调优版的大纲策略产出。'
+    description: '注入小说源数据后，对比官方版与调优版的大纲策略输出。',
   },
   BATCH_SCRIPT_PROMPT: {
     short: 'Excel 注入的分镜约束对比',
     type: '分镜',
-    description: '上传小说/约束数据后，双屏对比分镜脚本格式输出。'
+    description: '上传小说/约束数据后，双屏对比分镜脚本格式输出。',
   },
   ACT_GEN_TASK: {
     short: '三幕式生成流式演练',
     type: '流式',
-    description: '围绕原始创意进行三幕式结构生成，适合策略版与调优版并排校验。'
+    description: '围绕原始创意生成三幕式结构，适合官方版与调优版并排校验。',
   },
   SCRIPT_TASK_TEMPLATE: {
     short: '剧本大纲驱动的分镜约束',
     type: '分镜',
-    description: '导入 Word/TXT 大纲或文本，输出更长篇的分镜脚本结构。'
+    description: '导入 Word/TXT 大纲或文本，输出更长篇的分镜脚本结构。',
   }
 }
 
@@ -610,22 +701,124 @@ const isDiffFullscreen = ref(false)
 const readerVisible = ref(false)
 const readerTitle = ref('')
 const readerContent = ref('')
+const inputPreviewVisible = ref(false)
+const inputPreviewTitle = ref('')
+const inputPreviewContent = ref('')
+const inputPreviewRows = ref([])
+const inputPreviewSearch = ref('')
+const inputPreviewExpandedRows = ref([])
+const inputPreviewEpisode = ref(1)
+const inputPreviewFocusedEpisode = ref(null)
 const resultFullscreenVisible = ref(false)
 const resultFullscreenTitle = ref('')
 const resultFullscreenContent = ref('')
 const estimatedSeconds = ref(0)
 const elapsedSeconds = ref(0)
 const resultViewMode = ref('text')
+const storyboardPage = ref(1)
+const storyboardPageSize = 6
+const storyboardJumpShot = ref(1)
 
 const lineNumbersRef = ref(null)
 const zenLineNumbersRef = ref(null)
 const textareaRef = ref(null)
 
 const saveStatus = ref('已与云端同步')
+const assetStateSavedAt = ref(0)
 let saveTimeout = null
 
 let testTimer = null
 let activeTestRunId = ''
+let assetStateSaveTimer = null
+const typewriterTargets = {
+  official: '',
+  draft: ''
+}
+const typewriterTimers = {
+  official: null,
+  draft: null
+}
+
+const getAssetStateStorageKey = (assetKey) => `prompt_asset_state_${assetKey}`
+
+const readAssetState = (assetKey) => {
+  try {
+    const raw = localStorage.getItem(getAssetStateStorageKey(assetKey))
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+const persistAssetState = (assetKey = currentKey.value) => {
+  if (assetStateSaveTimer) {
+    clearTimeout(assetStateSaveTimer)
+    assetStateSaveTimer = null
+  }
+
+  const savedAt = Date.now()
+  const payload = {
+    testInputs: { ...testInputs.value },
+    testResults: { ...testResults.value },
+    resultViewMode: resultViewMode.value,
+    savedAt
+  }
+
+  localStorage.setItem(getAssetStateStorageKey(assetKey), JSON.stringify(payload))
+  if (assetKey === currentKey.value) {
+    assetStateSavedAt.value = savedAt
+  }
+}
+
+const schedulePersistAssetState = (assetKey = currentKey.value) => {
+  if (assetStateSaveTimer) clearTimeout(assetStateSaveTimer)
+  assetStateSaveTimer = setTimeout(() => {
+    persistAssetState(assetKey)
+  }, 180)
+}
+
+const stopTypewriter = (side, flush = false) => {
+  if (typewriterTimers[side]) {
+    clearInterval(typewriterTimers[side])
+    typewriterTimers[side] = null
+  }
+  if (flush) {
+    testResults.value[side] = typewriterTargets[side]
+  }
+}
+
+const clearTypewriters = (flush = false) => {
+  stopTypewriter('official', flush)
+  stopTypewriter('draft', flush)
+  if (!flush) {
+    typewriterTargets.official = ''
+    typewriterTargets.draft = ''
+  }
+}
+
+const queueTypewriter = (side, content) => {
+  typewriterTargets[side] = content
+
+  if (String(testResults.value[side] || '').includes('等待流式')) {
+    testResults.value[side] = ''
+  }
+
+  if (typewriterTimers[side]) return
+
+  typewriterTimers[side] = setInterval(() => {
+    const current = String(testResults.value[side] || '')
+    const target = String(typewriterTargets[side] || '')
+
+    if (current.length >= target.length) {
+      stopTypewriter(side)
+      return
+    }
+
+    const remaining = target.length - current.length
+    const step = Math.max(1, Math.min(18, Math.ceil(remaining / 18)))
+    testResults.value[side] = current + target.slice(current.length, current.length + step)
+  }, 16)
+}
 
 const validateApiKey = () => {
   if (!config) return true
@@ -647,6 +840,7 @@ const clearTestTimer = () => {
 const resetTestingState = (resetResults = false) => {
   isTesting.value = false
   clearTestTimer()
+  clearTypewriters(resetResults)
   elapsedSeconds.value = 0
   estimatedSeconds.value = 0
   activeTestRunId = ''
@@ -655,6 +849,21 @@ const resetTestingState = (resetResults = false) => {
     testResults.value = { official: '', draft: '' }
   }
 }
+
+const formatSavedTime = (timestamp) => {
+  if (!timestamp) return ''
+  return new Date(timestamp).toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+}
+
+const displaySaveStatus = computed(() => {
+  if (!assetStateSavedAt.value) return saveStatus.value
+  return `${saveStatus.value} · 结果已自动保存 ${formatSavedTime(assetStateSavedAt.value)}`
+})
 
 watch(() => config.provider, (newProvider, oldProvider) => {
   if (!newProvider || newProvider === oldProvider) return
@@ -665,7 +874,20 @@ watch(() => config.provider, (newProvider, oldProvider) => {
     engine.stopTask(currentTaskId.value)
   }
 
+  persistAssetState(currentKey.value)
   resetTestingState()
+})
+
+watch(testResults, () => {
+  schedulePersistAssetState(currentKey.value)
+}, { deep: true })
+
+watch(testInputs, () => {
+  schedulePersistAssetState(currentKey.value)
+}, { deep: true })
+
+watch(resultViewMode, () => {
+  schedulePersistAssetState(currentKey.value)
 })
 
 const getFriendlyVarName = (v) => friendlyVarMap[v] || '参数'
@@ -679,29 +901,55 @@ const getIcon = (key) => {
   return SetUp
 }
 
-const playgroundMeta = computed(() => {
-  if (streamPromptKeys.includes(currentKey.value)) {
-    return {
-      mode: '流式双屏演练',
-      title: currentKey.value === 'OUTLINE_TASK' ? '大纲策略流演练' : '三幕式生成流演练',
-      description: currentKey.value === 'OUTLINE_TASK'
-        ? '沙盒注入小说源数据后，同时启动官方版与调优版，以流式输出对比结构质量、节奏与压缩能力。'
-        : '围绕创意或需求注入，实时比较官方版与当前调优版的三幕式结构输出。',
-      output: '流式文本输出',
-      exportLabel: '支持导出 Word',
-      action: '点击 A/B 开始双屏演练',
-      compareHint: '更适合看结构、节奏、钩子与段落组织差异。',
-      exportHint: '适合导出长文本、策略说明和三幕式结构稿。',
-      resultType: 'word'
-    }
-  }
-
-  return {
+const playgroundMetaMap = {
+  SCRIPT_SYSTEM: {
+    mode: '基座对打',
+    title: '导演全局人设 A/B 演练',
+    description: '围绕导演人设、语气基线与创作边界，对比官方原版和当前调优版的文本输出。',
+    output: '原始文本输出',
+    exportLabel: '支持导出 Word',
+    action: '点击 A/B 开始双屏基座对打',
+    compareHint: '更适合看语气、人设边界和系统基调的差异。',
+    exportHint: '适合导出系统基座与人设提示词。',
+    resultType: 'word'
+  },
+  OUTLINE_TASK: {
+    mode: '流式双屏演练',
+    title: '小说大纲策略 A/B 演练',
+    description: '沙盒注入小说源数据后，同时启动官方版与调优版，以流式输出对比结构质量、节奏与压缩能力。',
+    output: '原始文本输出',
+    exportLabel: '支持导出 Word',
+    action: '点击 A/B 开始双屏演练',
+    compareHint: '更适合看结构、节奏、钩子与段落组织差异。',
+    exportHint: '适合导出长文本、策略说明和大纲结构稿。',
+    resultType: 'word'
+  },
+  BATCH_SCRIPT_PROMPT: {
     mode: '分镜约束对打',
-    title: currentKey.value === 'BATCH_SCRIPT_PROMPT' ? '小说分镜约束双屏工坊' : '剧本分镜约束双屏工坊',
-    description: currentKey.value === 'BATCH_SCRIPT_PROMPT'
-      ? '上传 Excel/CSV 约束源文后，比较两套提示词生成的分镜脚本格式。'
-      : '注入 Word/TXT 大纲或长文本，输出更长篇的分镜脚本格式，并支持表格导出。',
+    title: '小说分镜约束 A/B 演练',
+    description: '上传 Excel/CSV 约束源文后，比较两套提示词生成的分镜脚本格式。',
+    output: '分镜脚本格式输出',
+    exportLabel: '支持导出 Excel',
+    action: '点击 A/B 开始双屏分镜对打',
+    compareHint: '更适合看镜号、场景、画面和声音字段的稳定性。',
+    exportHint: '长内容也可落成 Excel，便于交付与继续编排。',
+    resultType: 'excel'
+  },
+  ACT_GEN_TASK: {
+    mode: '流式双屏演练',
+    title: '剧本三幕式 A/B 演练',
+    description: '围绕创意或需求注入，实时比较官方版与当前调优版的三幕式结构输出。',
+    output: '原始文本输出',
+    exportLabel: '支持导出 Word',
+    action: '点击 A/B 开始双屏演练',
+    compareHint: '更适合看人物关系、戏剧结构与三幕式节奏差异。',
+    exportHint: '适合导出三幕式方案和策略说明。',
+    resultType: 'word'
+  },
+  SCRIPT_TASK_TEMPLATE: {
+    mode: '分镜约束对打',
+    title: '剧本分镜约束 A/B 演练',
+    description: '注入 Word/TXT 大纲或长文本，输出更长篇的分镜脚本格式，并支持表格导出。',
     output: '分镜脚本格式输出',
     exportLabel: '支持导出 Excel',
     action: '点击 A/B 开始双屏分镜对打',
@@ -709,7 +957,9 @@ const playgroundMeta = computed(() => {
     exportHint: '长内容也可落成 Excel，便于交付与继续编排。',
     resultType: 'excel'
   }
-})
+}
+
+const playgroundMeta = computed(() => playgroundMetaMap[currentKey.value] || playgroundMetaMap.BATCH_SCRIPT_PROMPT)
 
 const officialVars = computed(() => {
   if (!officialPrompt.value) return []
@@ -731,7 +981,7 @@ const missingVars = computed(() => {
 const requiresApiKey = computed(() => config?.provider !== 'Mock (演示)')
 const apiKeyReady = computed(() => !requiresApiKey.value || Boolean(config?.apiKey && config.apiKey.trim()))
 const canStartABTest = computed(() => apiKeyReady.value && missingVars.value.length === 0)
-const supportsStoryboardCards = computed(() => playgroundMeta.value.resultType === 'excel')
+const supportsStoryboardCards = computed(() => storyboardPromptKeys.includes(currentKey.value))
 
 const diffStats = computed(() => {
   const officialLines = officialPrompt.value ? officialPrompt.value.split('\n').length : 0
@@ -828,6 +1078,10 @@ const handleTab = (e) => {
 }
 
 const isLongField = (v) => ['content', 'outline', 'original_idea', 'user_choice'].includes(v)
+const shouldShowInputPreview = (varName) => {
+  if (!String(testInputs.value[varName] || '').trim()) return false
+  return supportsExcelImport(varName) || supportsWordImport(varName) || ['content', 'outline', 'original_idea', 'user_choice'].includes(varName)
+}
 
 const supportsExcelImport = (varName) => {
   if (currentKey.value === 'OUTLINE_TASK') return ['content', 'user_choice'].includes(varName)
@@ -869,6 +1123,144 @@ const openReader = (title, content) => {
   readerTitle.value = title
   readerContent.value = content || ''
   readerVisible.value = true
+}
+
+const parseInputPreviewRowMeta = (title) => {
+  const safeTitle = String(title || '').trim()
+  const episodeMatch = safeTitle.match(/第\s*(\d+)\s*集/i)
+  return {
+    isActRow: /^ACT\s*/i.test(safeTitle),
+    episodeNumber: episodeMatch ? Number(episodeMatch[1]) : null
+  }
+}
+
+const inputPreviewDataRows = computed(() => inputPreviewRows.value.slice(1).map((row, index) => ({
+  id: index,
+  title: row[0] || `第 ${index + 1} 条`,
+  content: row[1] || '',
+  ...parseInputPreviewRowMeta(row[0])
+})))
+
+const isOutlinePreview = computed(() => inputPreviewRows.value[0]?.[0] === '章节')
+const inputPreviewMaxEpisode = computed(() => inputPreviewDataRows.value.reduce((max, row) => {
+  if (!row.episodeNumber) return max
+  return Math.max(max, row.episodeNumber)
+}, 0))
+
+const filteredInputPreviewRows = computed(() => {
+  const keyword = inputPreviewSearch.value.trim().toLowerCase()
+  let rows = inputPreviewDataRows.value
+
+  if (isOutlinePreview.value && inputPreviewFocusedEpisode.value) {
+    rows = rows.filter((row) => {
+      if (row.isActRow || row.title === '总览') return true
+      return !row.episodeNumber || row.episodeNumber === Number(inputPreviewFocusedEpisode.value)
+    })
+  }
+
+  if (!keyword) return rows
+  return rows.filter((row) => row.title.toLowerCase().includes(keyword))
+})
+
+const isInputPreviewRowExpanded = (rowId) => inputPreviewExpandedRows.value.includes(rowId)
+
+const toggleInputPreviewRow = (rowId) => {
+  if (isInputPreviewRowExpanded(rowId)) {
+    inputPreviewExpandedRows.value = inputPreviewExpandedRows.value.filter((item) => item !== rowId)
+    return
+  }
+  inputPreviewExpandedRows.value = [...inputPreviewExpandedRows.value, rowId]
+}
+
+const jumpToPreviewEpisode = () => {
+  if (!isOutlinePreview.value || !inputPreviewMaxEpisode.value) return
+  inputPreviewEpisode.value = Math.max(1, Math.min(inputPreviewMaxEpisode.value, Number(inputPreviewEpisode.value) || 1))
+  inputPreviewFocusedEpisode.value = inputPreviewEpisode.value
+}
+
+const parseOutlinePreviewRows = (content) => {
+  const normalized = String(content || '').replace(/\r/g, '').trim()
+  if (!normalized) return []
+
+  const markerRegex = /(ACT\s*[一二三123]?\s*[：:]|第\s*\d+\s*集\s*[：:])/g
+  const markers = [...normalized.matchAll(markerRegex)]
+  if (!markers.length) return []
+
+  const rows = []
+  const intro = normalized.slice(0, markers[0].index).trim()
+  if (intro) {
+    rows.push(['总览', intro])
+  }
+
+  markers.forEach((match, index) => {
+    const marker = match[0].replace(/\s+/g, '')
+    const start = (match.index || 0) + match[0].length
+    const end = index + 1 < markers.length ? (markers[index + 1].index || normalized.length) : normalized.length
+    const sectionContent = normalized.slice(start, end).trim()
+    rows.push([marker.replace(/：$/, ':').replace(/:$/, ''), sectionContent || '暂无内容'])
+  })
+
+  return rows.length ? [['章节', '内容'], ...rows] : []
+}
+
+const toPreviewRows = (content, varName) => {
+  const normalized = String(content || '').replace(/\r/g, '').trim()
+  if (!normalized) return []
+
+  if (varName === 'outline') {
+    const outlineRows = parseOutlinePreviewRows(normalized)
+    if (outlineRows.length) return outlineRows
+  }
+
+  const lines = normalized.split('\n').map((line) => line.trim()).filter(Boolean)
+  const chapterRegex = /(^|\n)([^|\n]+?)\s*\|\s*([\s\S]*?)(?=\n[^|\n]+?\s*\||$)/g
+  const chapterRows = []
+
+  let chapterMatch = chapterRegex.exec(normalized)
+  while (chapterMatch) {
+    chapterRows.push([chapterMatch[2].trim(), chapterMatch[3].trim()])
+    chapterMatch = chapterRegex.exec(normalized)
+  }
+
+  if (chapterRows.length > 0 && ['content', 'user_choice', 'outline'].includes(varName)) {
+    return [['标题', '正文'], ...chapterRows]
+  }
+
+  const rows = lines.map((line) => {
+    const rowText = line.replace(/\t/g, ' | ')
+    const separatorIndex = rowText.indexOf('|')
+    if (separatorIndex === -1) return null
+
+    return [
+      rowText.slice(0, separatorIndex).trim(),
+      rowText.slice(separatorIndex + 1).trim()
+    ]
+  }).filter(Boolean)
+
+  if (rows.length > 0) {
+    const firstRow = rows[0]
+    const headerLike = /^(title|标题)$/i.test(firstRow[0]) && /^(text|正文|内容)$/i.test(firstRow[1])
+    return headerLike ? rows : [['标题', '正文'], ...rows]
+  }
+
+  return []
+}
+
+const openInputPreview = (varName) => {
+  const content = String(testInputs.value[varName] || '').trim()
+  if (!content) {
+    ElMessage.warning('当前没有可预览的输入内容')
+    return
+  }
+
+  inputPreviewTitle.value = `${getFriendlyVarName(varName)} 预览`
+  inputPreviewRows.value = toPreviewRows(content, varName)
+  inputPreviewContent.value = content
+  inputPreviewSearch.value = ''
+  inputPreviewExpandedRows.value = []
+  inputPreviewEpisode.value = 1
+  inputPreviewFocusedEpisode.value = null
+  inputPreviewVisible.value = true
 }
 
 const openResultFullscreen = (title, content) => {
@@ -1025,6 +1417,39 @@ const alignedStoryboardPairs = computed(() => {
   }))
 })
 
+const storyboardTotalShots = computed(() => alignedStoryboardPairs.value.length)
+const storyboardPageCount = computed(() => Math.max(1, Math.ceil(storyboardTotalShots.value / storyboardPageSize)))
+const pagedStoryboardPairs = computed(() => {
+  const start = (storyboardPage.value - 1) * storyboardPageSize
+  return alignedStoryboardPairs.value.slice(start, start + storyboardPageSize)
+})
+const storyboardRangeLabel = computed(() => {
+  if (!storyboardTotalShots.value) return '0 - 0'
+  const start = (storyboardPage.value - 1) * storyboardPageSize + 1
+  const end = Math.min(storyboardTotalShots.value, start + storyboardPageSize - 1)
+  return `${start} - ${end}`
+})
+
+const jumpToStoryboardShot = () => {
+  if (!storyboardTotalShots.value) return
+  const shot = Math.max(1, Math.min(storyboardTotalShots.value, Number(storyboardJumpShot.value) || 1))
+  storyboardJumpShot.value = shot
+  storyboardPage.value = Math.ceil(shot / storyboardPageSize)
+}
+
+watch([alignedStoryboardPairs, resultViewMode], () => {
+  if (storyboardPage.value > storyboardPageCount.value) {
+    storyboardPage.value = storyboardPageCount.value
+  }
+  if (storyboardJumpShot.value > storyboardTotalShots.value) {
+    storyboardJumpShot.value = storyboardTotalShots.value || 1
+  }
+  if (!supportsStoryboardCards.value || resultViewMode.value !== 'cards') {
+    storyboardPage.value = 1
+    storyboardJumpShot.value = 1
+  }
+}, { deep: true })
+
 const exportExcel = (content, suffix) => {
   const rows = parseResultToRows(content)
   const wb = XLSX.utils.book_new()
@@ -1159,8 +1584,30 @@ const diffHtml = computed(() => {
   return html
 })
 
+const restoreAssetState = (assetState) => {
+  if (!assetState) return
+
+  if (assetState.testInputs && typeof assetState.testInputs === 'object') {
+    testInputs.value = { ...assetState.testInputs }
+  }
+
+  if (assetState.testResults && typeof assetState.testResults === 'object') {
+    testResults.value = {
+      official: assetState.testResults.official || '',
+      draft: assetState.testResults.draft || ''
+    }
+  }
+
+  assetStateSavedAt.value = assetState.savedAt || 0
+  if (assetState.resultViewMode) {
+    resultViewMode.value = assetState.resultViewMode
+  }
+}
+
 const loadPrompt = async () => {
   try {
+    const assetState = readAssetState(currentKey.value)
+    restoreAssetState(assetState)
     const res = await retryAsync(
       () => axios.get(apiUrl(`/api/script/prompts/${currentKey.value}`)),
       { retries: 6, delayMs: 800, shouldRetry: isRetriableNetworkError }
@@ -1182,9 +1629,18 @@ const loadPrompt = async () => {
 
     const matches = officialPrompt.value.match(/\{([a-zA-Z_]\w*)\}/g) || []
     const vars = [...new Set(matches.map((m) => m.replace(/[{}]/g, '')))]
+    const nextInputs = {}
     vars.forEach((item) => {
-      if (typeof testInputs.value[item] !== 'string') testInputs.value[item] = ''
+      nextInputs[item] = typeof assetState?.testInputs?.[item] === 'string'
+        ? assetState.testInputs[item]
+        : (typeof testInputs.value[item] === 'string' ? testInputs.value[item] : '')
     })
+    testInputs.value = nextInputs
+    if (assetState?.resultViewMode && (assetState.resultViewMode === 'text' || supportsStoryboardCards.value)) {
+      resultViewMode.value = assetState.resultViewMode
+    } else if (!supportsStoryboardCards.value) {
+      resultViewMode.value = 'text'
+    }
   } catch (error) {
     ElMessage.error(createErrorMessage(error, '资产加载失败，请检查后端服务'))
   }
@@ -1197,6 +1653,7 @@ const switchAsset = (key) => {
     engine.stopTask(currentTaskId.value)
   }
 
+  persistAssetState(currentKey.value)
   currentKey.value = key
   resetTestingState(true)
   loadPrompt()
@@ -1215,6 +1672,7 @@ const handleDeploy = async () => {
     formData.append('content', editBuffer.value)
     await axios.post(apiUrl('/api/script/prompts/update'), formData)
     localStorage.removeItem(`prompt_draft_${currentKey.value}`)
+    assetStateSavedAt.value = 0
     saveStatus.value = '已与云端同步'
     ElMessage.success('部署成功')
   } catch (error) {
@@ -1295,16 +1753,6 @@ const runABTest = () => {
     ElMessage.error(error || '双屏演练失败，请稍后重试')
   }
 
-  const updateOfficial = throttle((content) => {
-    if (activeTestRunId !== runId) return
-    testResults.value.official = content
-  }, 80)
-
-  const updateDraft = throttle((content) => {
-    if (activeTestRunId !== runId) return
-    testResults.value.draft = content
-  }, 80)
-
   const officialUserPrompt = buildPromptContent(officialPrompt.value)
   const draftUserPrompt = buildPromptContent(editBuffer.value)
 
@@ -1313,12 +1761,14 @@ const runABTest = () => {
     { system_prompt: '官方原版', user_prompt: officialUserPrompt, task_id: `${currentTaskId.value}_official` },
     (chunk) => {
       if (activeTestRunId !== runId) return
-      if (officialBuffer === '' && testResults.value.official.includes('等待流式')) officialBuffer = ''
       officialBuffer += chunk
-      updateOfficial(officialBuffer)
+      queueTypewriter('official', officialBuffer)
     },
     undefined,
-    finishOnce,
+    () => {
+      stopTypewriter('official', true)
+      finishOnce()
+    },
     failOnce,
     config
   )
@@ -1328,12 +1778,14 @@ const runABTest = () => {
     { system_prompt: '当前调优版', user_prompt: draftUserPrompt, task_id: `${currentTaskId.value}_draft` },
     (chunk) => {
       if (activeTestRunId !== runId) return
-      if (draftBuffer === '' && testResults.value.draft.includes('等待流式')) draftBuffer = ''
       draftBuffer += chunk
-      updateDraft(draftBuffer)
+      queueTypewriter('draft', draftBuffer)
     },
     undefined,
-    finishOnce,
+    () => {
+      stopTypewriter('draft', true)
+      finishOnce()
+    },
     failOnce,
     config
   )
@@ -1701,6 +2153,11 @@ onMounted(loadPrompt)
   border: 1px solid #374151;
   background: #111827;
   box-shadow: 0 24px 48px rgba(15, 23, 42, 0.2);
+}
+
+.edit-panel .editor-shell {
+  flex: none;
+  height: min(56vh, 560px);
 }
 
 .editor-shell.warning {
@@ -2341,9 +2798,67 @@ onMounted(loadPrompt)
   padding-right: 2px;
 }
 
+.storyboard-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.storyboard-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 4px 2px 0;
+}
+
+.storyboard-summary,
+.storyboard-page-indicator {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.storyboard-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.storyboard-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.storyboard-jump :deep(.el-input-number) {
+  width: 86px;
+}
+
+.storyboard-jump :deep(.el-input__wrapper) {
+  border-radius: 10px;
+  background: #fff;
+}
+
 .storyboard-compare-row {
   display: grid;
-  gap: 10px;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: linear-gradient(180deg, #ffffff 0%, #fcfcfd 100%);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
 }
 
 .compare-row-marker {
@@ -2357,12 +2872,13 @@ onMounted(loadPrompt)
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.04em;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
 }
 
 .compare-row-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 16px;
 }
 
 .storyboard-card-list {
@@ -2469,6 +2985,13 @@ onMounted(loadPrompt)
   font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
 }
 
+.screen-text.streaming::after {
+  content: '|';
+  margin-left: 2px;
+  color: #f97316;
+  animation: prompt-caret-blink 1s steps(1) infinite;
+}
+
 .reader-content {
   max-height: 65vh;
   overflow: auto;
@@ -2476,6 +2999,133 @@ onMounted(loadPrompt)
   border-radius: 18px;
   background: #fafaf9;
   border: 1px solid #e5e7eb;
+}
+
+.input-preview-text {
+  max-height: 72vh;
+}
+
+.input-preview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.input-preview-search {
+  max-width: 280px;
+}
+
+.input-preview-meta {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.input-preview-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.input-preview-jump :deep(.el-input-number) {
+  width: 84px;
+}
+
+.input-preview-table-wrap {
+  max-height: 72vh;
+  overflow: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  background: #fafaf9;
+}
+
+.input-preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.input-preview-table th,
+.input-preview-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+  vertical-align: top;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #1f2937;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.input-preview-table th:first-child,
+.input-preview-table td:first-child {
+  width: 260px;
+  min-width: 260px;
+  border-right: 1px solid #e5e7eb;
+  background: #fff;
+  font-weight: 700;
+}
+
+.input-preview-title-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.input-preview-act-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #111827;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.input-preview-table tbody tr:nth-child(even) td {
+  background: #fcfcfd;
+}
+
+.input-preview-table tbody tr.outline-act-row td {
+  background: #fff7ed !important;
+  color: #9a3412;
+}
+
+.input-preview-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fff7ed;
+  color: #9a3412;
+  font-weight: 800;
+}
+
+.input-preview-cell {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+}
+
+.input-preview-cell.expanded {
+  display: block;
+  overflow: visible;
+}
+
+.input-preview-row-actions {
+  margin-top: 6px;
 }
 
 .export-btn {
@@ -2505,6 +3155,11 @@ onMounted(loadPrompt)
   font-size: 15px;
   line-height: 1.9;
   font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+}
+
+@keyframes prompt-caret-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
 }
 
 :deep(.reader-dialog .el-dialog) {

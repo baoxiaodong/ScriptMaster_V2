@@ -57,7 +57,20 @@ export const isMockMode = (config) => {
  * @param {string} message - 错误信息
  * @returns {Object} 错误提示配置
  */
-export const createErrorMessage = (message) => {
+export const getFriendlyErrorText = (error, fallback = '操作失败，请稍后重试') => {
+  if (typeof error === 'string' && error.trim()) return error.trim();
+
+  const serverMessage = error?.response?.data?.message;
+  if (typeof serverMessage === 'string' && serverMessage.trim()) return serverMessage.trim();
+
+  const friendlyMessage = error?.friendlyMessage;
+  if (typeof friendlyMessage === 'string' && friendlyMessage.trim()) return friendlyMessage.trim();
+
+  return fallback;
+};
+
+export const createErrorMessage = (error, fallback = '操作失败，请稍后重试') => {
+  const message = getFriendlyErrorText(error, fallback);
   return {
     message: `<span class='error-icon'>❌</span> ${message}`,
     grouping: true,

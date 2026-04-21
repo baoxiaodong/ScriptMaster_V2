@@ -404,13 +404,31 @@ def script_generate_storyboard(task_id: str = Form(...), outline_text: str = For
 def get_prompt_detail(key: str):
     """获取指定模块的官方与用户自定义提示词"""
     logger.info(f"📝 [GET] /api/script/prompts/{key}")
-    official = getattr(PromptTemplates, key, "未找到官方模板")
-    current = PromptManager.get(key)
-    return {
-        "status": "success",
-        "official_prompt": official,
-        "user_prompt": current
-    }
+    try:
+        if key not in PromptKeys.__members__:
+            logger.warning(f"⚠️ [PromptStudio] 未知资产 key: {key}")
+            return {
+                "status": "error",
+                "message": "未找到对应的提示词资产",
+                "official_prompt": "",
+                "user_prompt": ""
+            }
+
+        official = getattr(PromptTemplates, key, "")
+        current = PromptManager.get(key)
+        return {
+            "status": "success",
+            "official_prompt": official,
+            "user_prompt": current
+        }
+    except Exception as e:
+        logger.error(f"🚨 [获取提示词] 异常: {e}")
+        return {
+            "status": "error",
+            "message": "资产加载失败，请检查提示词配置",
+            "official_prompt": "",
+            "user_prompt": ""
+        }
 
 @app.post("/api/script/prompts/update")
 def update_prompt(key: str = Form(...), content: str = Form(...)):

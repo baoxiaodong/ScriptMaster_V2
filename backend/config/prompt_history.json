@@ -1,5 +1,15 @@
 [
     {
+        "time": "2026-04-21 09:20:15",
+        "action": "🔄 还原配置",
+        "details": "将模块 [BATCH_SCRIPT_PROMPT] 恢复为系统默认"
+    },
+    {
+        "time": "2026-04-21 09:20:11",
+        "action": "🚀 部署配置",
+        "details": "更新了模块 [BATCH_SCRIPT_PROMPT]"
+    },
+    {
         "time": "2026-04-19 23:04:06",
         "action": "🔄 还原配置",
         "details": "将模块 [SCRIPT_SYSTEM] 恢复为系统默认"
