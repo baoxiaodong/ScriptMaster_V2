@@ -5,19 +5,137 @@ const path = require('path');
 
 const port = 8000;
 const backendReadyUrl = `http://127.0.0.1:${port}/`;
+const LOG_FILE_NAME = 'main-process.log';
+const LOG_MAX_SIZE = 5 * 1024 * 1024;
+const LOG_MAX_FILES = 3;
 
 let backendProcess = null;
 let mainWindow = null;
 
+function getLogPath() {
+  const installDir = path.dirname(app.getPath('exe'));
+  return path.join(installDir, LOG_FILE_NAME);
+}
+
+function rotateLogIfNeeded(logPath) {
+  try {
+    if (!fs.existsSync(logPath)) return;
+    const stats = fs.statSync(logPath);
+    if (stats.size < LOG_MAX_SIZE) return;
+
+    for (let i = LOG_MAX_FILES - 1; i >= 1; i -= 1) {
+      const olderPath = `${logPath}.${i}`;
+      const newerPath = `${logPath}.${i + 1}`;
+      if (fs.existsSync(olderPath)) {
+        if (i === LOG_MAX_FILES - 1) {
+          fs.rmSync(olderPath, { force: true });
+        } else {
+          fs.renameSync(olderPath, newerPath);
+        }
+      }
+    }
+
+    fs.renameSync(logPath, `${logPath}.1`);
+  } catch (_error) {
+    // Ignore rotation failures and continue writing.
+  }
+}
+
 function log(message) {
   try {
-    // 日志文件放在安装目录（EXE 所在目录）
-    const installDir = path.dirname(app.getPath('exe'));
-    const logPath = path.join(installDir, 'main-process.log');
+    const logPath = getLogPath();
+    rotateLogIfNeeded(logPath);
     fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${message}\n`);
   } catch (_error) {
     // Ignore logging failures.
   }
+}
+
+function toHtml(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderWindowMessage(title, detail, tone = 'loading') {
+  if (!mainWindow) return Promise.resolve();
+
+  const themes = {
+    loading: {
+      border: '#fde68a',
+      bg: '#fffbeb',
+      title: '#92400e',
+      detail: '#78350f',
+    },
+    error: {
+      border: '#fecaca',
+      bg: '#fff7ed',
+      title: '#b91c1c',
+      detail: '#7f1d1d',
+    },
+  };
+
+  const theme = themes[tone] || themes.loading;
+  const html = `<!doctype html>
+  <html lang="zh-CN">
+    <head>
+      <meta charset="UTF-8" />
+      <title>${toHtml(title)}</title>
+      <style>
+        body {
+          margin: 0;
+          min-height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: linear-gradient(180deg, #fff 0%, ${theme.bg} 100%);
+          font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+          color: #111827;
+        }
+        .panel {
+          width: min(720px, calc(100vw - 48px));
+          padding: 32px;
+          border-radius: 24px;
+          border: 1px solid ${theme.border};
+          background: rgba(255,255,255,0.96);
+          box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
+        }
+        h1 { margin: 0 0 12px; font-size: 28px; color: ${theme.title}; }
+        p { margin: 0 0 16px; line-height: 1.8; color: ${theme.detail}; }
+        pre {
+          margin: 0;
+          padding: 16px;
+          border-radius: 16px;
+          background: #0f172a;
+          color: #e2e8f0;
+          white-space: pre-wrap;
+          word-break: break-word;
+          font-size: 13px;
+          line-height: 1.7;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="panel">
+        <h1>${toHtml(title)}</h1>
+        <p>${tone === 'error'
+          ? '应用启动失败，请检查是否被杀毒软件拦截、端口 8000 被占用，或安装目录权限受限。'
+          : '应用正在启动后端服务，请稍候。首次启动可能会稍慢一些。'}</p>
+        <pre>${toHtml(detail)}</pre>
+      </div>
+    </body>
+  </html>`;
+
+  return mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+}
+
+function showFatalError(title, detail) {
+  renderWindowMessage(title, detail, 'error').catch((error) => {
+    log(`Failed to render fatal error page: ${error.stack || error.message}`);
+  });
 }
 
 /**
@@ -199,23 +317,18 @@ function createWindow() {
     },
   });
 
-  const frontendPath = getFrontendEntry();
-  log(`Loading frontend from: ${frontendPath}`);
-  log(`Frontend file exists: ${fs.existsSync(frontendPath)}`);
-
-  mainWindow.loadFile(frontendPath).then(() => {
-    log('Frontend loaded successfully.');
-  }).catch((error) => {
-    log(`Frontend load failed: ${error.stack || error.message}`);
+  renderWindowMessage('ScriptMaster 启动中', '正在检查本地后端服务...', 'loading').catch((error) => {
+    log(`Loading placeholder failed: ${error.stack || error.message}`);
   });
 
-  // 🔧 增加窗口加载失败的错误处理
   mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
     log(`Page failed to load: errorCode=${errorCode} errorDescription=${errorDescription}`);
+    showFatalError('页面加载失败', `errorCode=${errorCode}\n${errorDescription}`);
   });
 
   mainWindow.webContents.on('render-process-gone', (event, details) => {
     log(`Renderer process crashed: reason=${details.reason} exitCode=${details.exitCode}`);
+    showFatalError('渲染进程异常退出', `reason=${details.reason}\nexitCode=${details.exitCode}`);
   });
 
   mainWindow.webContents.on('console-message', (event, level, message) => {
@@ -230,8 +343,22 @@ function createWindow() {
   });
 }
 
+function loadFrontend() {
+  const frontendPath = getFrontendEntry();
+  log(`Loading frontend from: ${frontendPath}`);
+  log(`Frontend file exists: ${fs.existsSync(frontendPath)}`);
+
+  return mainWindow.loadFile(frontendPath).then(() => {
+    log('Frontend loaded successfully.');
+  }).catch((error) => {
+    log(`Frontend load failed: ${error.stack || error.message}`);
+    showFatalError('前端页面加载失败', error.stack || error.message);
+  });
+}
+
 app.on('ready', async () => {
   log(`App ready. isPackaged=${app.isPackaged} appPath=${app.getAppPath()} resourcesPath=${process.resourcesPath}`);
+  createWindow();
 
   // 🔧 修复1：先清理旧后端
   killExistingBackend();
@@ -241,10 +368,10 @@ app.on('ready', async () => {
 
   try {
     await waitForBackend();
-    createWindow();
+    await loadFrontend();
   } catch (error) {
     log(`Startup failed: ${error.stack || error.message}`);
-    app.quit();
+    showFatalError('后端启动失败', error.stack || error.message);
   }
 });
 

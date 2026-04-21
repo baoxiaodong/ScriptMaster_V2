@@ -1,6 +1,7 @@
 """
 全局配置模块 - 后端引擎专属版
 """
+import io
 import logging
 import sys
 
@@ -29,7 +30,13 @@ def setup_logger(name: str = "ScriptMaster", level: int = logging.INFO) -> loggi
     logger = logging.getLogger(name)
     if not logger.handlers:
         logger.setLevel(level)
-        console_handler = logging.StreamHandler(sys.stdout)
+        stream = sys.stdout
+        if hasattr(sys.stdout, 'buffer'):
+            try:
+                stream = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+            except Exception:
+                stream = sys.stdout
+        console_handler = logging.StreamHandler(stream)
         console_handler.setLevel(level)
         formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
         console_handler.setFormatter(formatter)
