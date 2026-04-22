@@ -116,8 +116,16 @@
       <el-main class="workspace">
         <div class="hero-banner">
           <div class="banner-content">
-            <h1 class="glow-text">ScriptMaster~AI小说引擎 <span class="badge-pro">V1.0 PRO</span></h1>
-            <p>基于大语言模型的工业级小说分镜解析系统</p>
+            <div class="ai-badge-wrapper">
+              <svg class="ai-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="ai-label">AI驱动</span>
+            </div>
+            <h1 class="glow-text">ScriptMaster 小说引擎 <span class="badge-pro">V1.0 PRO</span></h1>
+            <p class="subtitle-enhanced">基于大语言模型的智能小说分镜解析系统</p>
           </div>
           <div class="banner-decoration"></div>
         </div>
@@ -592,6 +600,64 @@ body {
   color: #000;
   box-shadow: 0 0 15px rgba(255, 90, 0, 0.4);
 }
+/* AI徽章样式 */
+.ai-badge-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 20px;
+  margin-bottom: 16px;
+  backdrop-filter: blur(10px);
+}
+
+.ai-icon {
+  width: 20px;
+  height: 20px;
+  color: #6366f1;
+  animation: float 3s ease-in-out infinite;
+}
+
+.ai-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #6366f1;
+  letter-spacing: 0.5px;
+}
+
+.dark-theme .ai-badge-wrapper {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.dark-theme .ai-icon,
+.dark-theme .ai-label {
+  color: #818cf8;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+.subtitle-enhanced {
+  color: #a0aabf;
+  margin: 10px 0 0 0;
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+
+.dark-theme .subtitle-enhanced {
+  color: #d1d5db;
+}
+
 .banner-content p {
   color: #a0aabf;
   margin: 10px 0 0 0;
