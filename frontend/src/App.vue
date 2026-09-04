@@ -31,6 +31,7 @@
               <el-option label="Google Gemini" value="Google Gemini" />
               <el-option label="自定义三方Gemini" value="自定义三方Gemini" />
               <el-option label="OpenAI (GPT)" value="OpenAI (GPT)" />
+              <el-option label="第三方 OpenAI (Responses)" value="第三方 OpenAI (Responses)" />
               <el-option label="阿里云通义千问" value="阿里云通义千问" />
             </el-select>
             <el-alert
@@ -43,17 +44,16 @@
             />
           </el-form-item>
 
-          <el-form-item label="🤖 模型代号 (Model)">
-            <el-select
-              v-model="config.modelName"
-              filterable
-              allow-create
-              default-first-option
-              placeholder="请选择或手动输入模型代号"
-              style="width: 100%"
-            >
-              <el-option v-for="model in currentModelOptions" :key="model" :label="model" :value="model" />
-            </el-select>
+          <el-form-item label="🌐 神经网关 (Base URL)">
+            <el-input v-model="config.baseUrl" placeholder="默认官方地址，代理填写 API 根地址，例如 https://your-gateway.example.com/v1" />
+            <el-alert
+              v-if="config.provider === '第三方 OpenAI (Responses)'"
+              title="第三方平台必须兼容 OpenAI Responses API；Base URL 填写 API 根地址，不要填写 /responses 具体路径"
+              type="info"
+              show-icon
+              :closable="false"
+              style="margin-top: 10px; line-height: 1.4; border-radius: 8px"
+            />
           </el-form-item>
 
           <el-form-item>
@@ -66,8 +66,23 @@
             <el-input v-model="config.apiKey" type="password" show-password placeholder="输入你的专属 Key" />
           </el-form-item>
 
-          <el-form-item label="🌐 神经网关 (Base URL)">
-            <el-input v-model="config.baseUrl" placeholder="默认官方地址，代理必填" />
+          <el-form-item label="🤖 模型代号 (Model)">
+            <div class="model-input-row">
+              <el-select
+                v-model="config.modelName"
+                filterable
+                allow-create
+                default-first-option
+                placeholder="先获取模型，也可以手动输入"
+                style="width: 100%"
+              >
+                <el-option v-for="model in currentModelOptions" :key="model" :label="model" :value="model" />
+              </el-select>
+              <el-button v-if="supportsModelDiscovery(config.provider)" plain :loading="isLoadingModels" @click="fetchModels">
+                {{ isLoadingModels ? '获取中' : '获取模型' }}
+              </el-button>
+            </div>
+            <div class="model-help-text">填写 Base URL 和 API Key 后点击“获取模型”；列表为空时仍可手动输入模型代号。</div>
           </el-form-item>
 
           <el-button class="btn-ignite" @click="saveConfig" :loading="isSaving">
@@ -158,6 +173,7 @@ import axios from 'axios';
 import { apiUrl } from './api/base';
 const activeTab = ref('novel');
 const isSaving = ref(false);
+const isLoadingModels = ref(false);
 const activeUsagePanel = ref(['1']); // 默认展开使用说明
 const isDarkMode = ref(false);
 const rememberConfig = ref(false);
@@ -179,6 +195,7 @@ const API_BASE_URLS = {
   阿里云通义千问: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   'Google Gemini': '',
   'OpenAI (GPT)': '',
+  '第三方 OpenAI (Responses)': '',
   'Mock (演示)': '',
 };
 
@@ -188,7 +205,8 @@ const MODEL_DICT = {
   自定义三方Gemini: ['gemini-3.1-pro-preview'],
   阿里云通义千问: ['qwen3-max', 'qwen-plus', 'qwen-turbo'],
   'Google Gemini': ['gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-3.1-pro-preview'],
-  'OpenAI (GPT)': ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+  'OpenAI (GPT)': ['gpt-4o', 'gpt-4.1', 'gpt-5'],
+  '第三方 OpenAI (Responses)': [],
 };
 
 const currentModelOptions = ref([]);
@@ -250,6 +268,62 @@ const decryptApiKey = (encryptedKey) => {
     return '';
   }
 };
+
+const supportsModelDiscovery = (provider) => [
+  'OpenAI (GPT)',
+  '第三方 OpenAI (Responses)',
+  '自定义三方Gemini',
+  'OpenRouter',
+  '阿里云通义千问'
+].includes(provider)
+
+const fetchModels = async () => {
+  if (!supportsModelDiscovery(config.provider)) {
+    ElMessage.info('当前平台使用专用模型目录，请手动选择模型')
+    return
+  }
+  if (config.provider === 'Mock (演示)') {
+    currentModelOptions.value = ['mock-model']
+    config.modelName = 'mock-model'
+    return
+  }
+  if (!config.apiKey.trim()) {
+    ElMessage.warning('请先填写 API Key')
+    return
+  }
+  if (!config.baseUrl.trim() && config.provider === '第三方 OpenAI (Responses)') {
+    ElMessage.warning('请先填写第三方平台的 Base URL')
+    return
+  }
+
+  isLoadingModels.value = true
+  try {
+    const formData = new FormData()
+    formData.append('provider', config.provider)
+    formData.append('api_key', config.apiKey)
+    formData.append('base_url', config.baseUrl)
+    const res = await axios.post(apiUrl('/api/config/models'), formData)
+    if (res.data?.status !== 'success') {
+      throw new Error(typeof res.data?.message === 'string' ? res.data.message : '模型列表获取失败')
+    }
+
+    const models = Array.isArray(res.data.models) ? res.data.models : []
+    currentModelOptions.value = models
+    if (!config.modelName && models.length > 0) {
+      config.modelName = models[0]
+    }
+    if (models.length > 0) {
+      ElMessage.success(`已获取 ${models.length} 个模型，可直接选择或继续手动输入`)
+    } else {
+      ElMessage.warning('平台未返回模型列表，请手动输入模型代号')
+    }
+  } catch (error) {
+    const message = error.response?.data?.detail || error.message || '模型列表获取失败'
+    ElMessage.error(`获取模型失败：${message}`)
+  } finally {
+    isLoadingModels.value = false
+  }
+}
 
 const saveConfig = async () => {
   if (config.provider !== 'Mock (演示)' && !config.apiKey) {
@@ -388,6 +462,25 @@ body {
 }
 .premium-form {
   padding: 24px;
+}
+.model-input-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+}
+.model-input-row .el-select {
+  min-width: 0;
+  flex: 1;
+}
+.model-input-row .el-button {
+  flex-shrink: 0;
+}
+.model-help-text {
+  margin-top: 6px;
+  color: var(--text-sub);
+  font-size: 12px;
+  line-height: 1.5;
 }
 .premium-form .el-form-item__label {
   font-weight: 600;

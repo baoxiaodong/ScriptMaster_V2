@@ -74,14 +74,24 @@ def verify_config(
         logger.error(f"💥 [配置验证] 异常: {e}")
         return error_handler.parse_exception(e, "配置验证")
 
+@app.post("/api/config/models")
+def list_models(
+        provider: str = Form(...), api_key: str = Form(...), base_url: str = Form("")
+):
+    """读取 OpenAI 兼容平台模型列表，供前端选择或继续手动输入。"""
+    logger.info(f"🔎 [POST] /api/config/models - provider: {provider}, base_url: {base_url}")
+    if provider == "Mock (演示)":
+        return {"status": "success", "models": ["mock-model"]}
+    try:
+        models = llm_service.list_models(provider, api_key, base_url)
+        return {"status": "success", "models": models}
+    except Exception as e:
+        logger.error(f"💥 [模型列表] 异常: {e}")
+        return error_handler.parse_exception(e, "获取模型列表")
+
 @app.post("/api/stop_task")
 def stop_task(task_id: str = Form(...)):
-    """停止正在运行的任务
-    参数:
-        task_id: 任务唯一标识
-    返回:
-        停止成功的状态信息
-    """
+    """请求停止正在运行的任务。"""
     logger.info(f"🛑 [POST] /api/stop_task - task_id: {task_id}")
     TaskManager.request_stop(task_id)
     logger.info(f"✅ [停止任务] 已请求停止任务: {task_id}")
@@ -157,14 +167,14 @@ def generate_outline(
                     yield f"data: {safe_chunk_json}\n\n"
 
                 logger.info(f"✅ [生成大纲] 完成")
-                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
             except Exception as e:
                 logger.error(f"💥 [生成大纲] 异常: {e}")
                 yield f"data: {json.dumps({'type': 'error', 'content': f'生成大纲失败: {str(e)}'}, ensure_ascii=False)}\n\n"
             finally:
                 TaskManager.cleanup_task(task_id)
 
-        return StreamingResponse(event_generator(), media_type="text/event-stream")
+        return StreamingResponse(event_generator(), media_type="text/event-stream; charset=utf-8")
     except Exception as e:
         logger.error(f"💥 [生成大纲] 初始化异常: {e}")
         TaskManager.cleanup_task(task_id)
@@ -237,14 +247,14 @@ def generate_storyboard(
                 final_data[ep] = df.to_csv(index=False) if isinstance(df, pd.DataFrame) else str(df)
             
             logger.info(f"✅ [生成小说分镜] 完成，集数: {len(final_data)}")
-            yield f"data: {json.dumps({'type': 'done', 'results': final_data})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'results': final_data}, ensure_ascii=False)}\n\n"
         except Exception as e:
             logger.error(f"💥 [生成小说分镜] 异常: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
         finally:
             TaskManager.cleanup_task(task_id)
 
-    return StreamingResponse(storyboard_generator(), media_type="text/event-stream")
+    return StreamingResponse(storyboard_generator(), media_type="text/event-stream; charset=utf-8")
 
 # =============================================================================
 # 剧本衍生模式接口
@@ -281,13 +291,13 @@ def script_generate_acts(task_id: str = Form(...), idea: str = Form(...)):
                 yield f"data: {json.dumps({'type': 'chunk', 'content': chunk}, ensure_ascii=False)}\n\n"
             
             logger.info(f"✅ [生成三幕式] 完成")
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
         except Exception as e:
             logger.error(f"💥 [生成三幕式] 异常: {e}")
             yield f"data: {json.dumps({'type': 'error', 'content': f'生成失败: {str(e)}'}, ensure_ascii=False)}\n\n"
         finally:
             TaskManager.cleanup_task(task_id)
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(event_generator(), media_type="text/event-stream; charset=utf-8")
 
 @app.post("/api/script/generate_outline")
 def script_generate_outline(task_id: str = Form(...), act_structure: str = Form(...), total_episodes: int = Form(...)):
@@ -315,13 +325,13 @@ def script_generate_outline(task_id: str = Form(...), act_structure: str = Form(
                 yield f"data: {json.dumps({'type': 'chunk', 'content': chunk}, ensure_ascii=False)}\n\n"
             
             logger.info(f"✅ [生成剧本大纲] 完成")
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
         except Exception as e:
             logger.error(f"💥 [生成剧本大纲] 异常: {e}")
             yield f"data: {json.dumps({'type': 'error', 'content': f'大纲生成失败: {str(e)}'}, ensure_ascii=False)}\n\n"
         finally:
             TaskManager.cleanup_task(task_id)
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(event_generator(), media_type="text/event-stream; charset=utf-8")
 
 @app.post("/api/script/generate_storyboard")
 def script_generate_storyboard(task_id: str = Form(...), outline_text: str = Form(...), total_episodes: int = Form(...)):
@@ -394,7 +404,7 @@ def script_generate_storyboard(task_id: str = Form(...), outline_text: str = For
         finally:
             TaskManager.cleanup_task(task_id)
             
-    return StreamingResponse(storyboard_generator(), media_type="text/event-stream")
+    return StreamingResponse(storyboard_generator(), media_type="text/event-stream; charset=utf-8")
 # =============================================================================
 # 提示词工坊接口 (Prompt Studio)
 # =============================================================================
@@ -490,7 +500,7 @@ async def test_prompt_stream(
             TaskManager.cleanup_task(task_id)
             logger.info(f"🏁 [提示词演练] 任务 {task_id} 资源已释放")
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(event_stream(), media_type="text/event-stream; charset=utf-8")
 # =============================================================================
 # 启动服务
 # =============================================================================

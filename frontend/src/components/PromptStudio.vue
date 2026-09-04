@@ -1535,10 +1535,22 @@ const handleImportFile = async (fileObj, varName) => {
       if (fileName.endsWith('.txt')) {
         const reader = new FileReader()
         reader.onload = (event) => {
-          testInputs.value[varName] = String(event.target.result || '')
-          ElMessage.success('TXT 大纲已注入沙盒')
+          try {
+            const bytes = new Uint8Array(event.target.result)
+            let text
+            try {
+              // 优先使用严格 UTF-8；失败时兼容 Windows 常见的 GB18030/GBK 文本。
+              text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+            } catch {
+              text = new TextDecoder('gb18030').decode(bytes)
+            }
+            testInputs.value[varName] = text
+            ElMessage.success('TXT 大纲已注入沙盒')
+          } catch (error) {
+            ElMessage.error(`TXT 解码失败：${error.message}`)
+          }
         }
-        reader.readAsText(file)
+        reader.readAsArrayBuffer(file)
         return
       }
 

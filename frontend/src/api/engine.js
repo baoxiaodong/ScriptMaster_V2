@@ -85,7 +85,7 @@ export const engine = {
       }
       
       const reader = response.body.getReader();
-      const decoder = new TextDecoder();
+      const decoder = new TextDecoder('utf-8');
       let buffer = '';
       let chunkCount = 0;
       

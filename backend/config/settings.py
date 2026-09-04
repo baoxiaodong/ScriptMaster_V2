@@ -14,6 +14,7 @@ API_BASE_URLS = {
     "自定义三方Gemini": "https://aigateway.edgecloudapp.com/v1/5087eed27d04cd00349d210e10fe620e/gemini-redbird",
     "OpenRouter": "https://openrouter.ai/api/v1",
     "阿里云通义千问": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "第三方 OpenAI (Responses)": "",
     "Google Gemini (OpenAI 兼容)": "https://generativelanguage.googleapis.com/v1beta/openai/"
 }
 
@@ -22,7 +23,8 @@ MODEL_OPTIONS = {
     "自定义三方Gemini": ["gemini-3.1-pro-preview"],
     "阿里云通义千问": ["qwen3-max", "qwen-plus", "qwen-turbo"],
     "Google Gemini": ["gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-3.1-pro-preview"],
-    "OpenAI (GPT)": ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"]
+    "OpenAI (GPT)": ["gpt-4o", "gpt-4.1", "gpt-5"],
+    "第三方 OpenAI (Responses)": []
 }
 
 def setup_logger(name: str = "ScriptMaster", level: int = logging.INFO) -> logging.Logger:

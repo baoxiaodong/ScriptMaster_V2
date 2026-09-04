@@ -2,6 +2,7 @@
 LLM服务模块 - 封装所有大模型调用 (FastAPI 纯净版)
 """
 import concurrent.futures
+import json
 import logging
 import queue
 import threading
@@ -34,6 +35,20 @@ def _friendly_error(raw: str) -> str:
     if "model" in r and ("not found" in r or "does not exist" in r or "不存在" in raw):
         return "模型不存在，请尝试更换其他模型"
     return raw[:120] if len(raw) > 120 else raw
+
+
+def _normalize_openai_base_url(base_url: str = "") -> str:
+    """规范化 OpenAI 兼容网关地址，允许用户填写域名或完整的 /v1 地址。"""
+    normalized = (base_url or "").strip().rstrip("/")
+    if not normalized:
+        return ""
+
+    # 用户填入 https://example.com 时，OpenAI SDK 需要以 /v1 为 API 根路径。
+    from urllib.parse import urlparse
+    parsed = urlparse(normalized)
+    if parsed.scheme and parsed.netloc and parsed.path in ("", "/"):
+        normalized = f"{normalized}/v1"
+    return normalized
 
 
 # 可选依赖
@@ -85,12 +100,12 @@ class LLMService:
         }
 
         if base_url:
-            client_params["base_url"] = base_url
+            client_params["base_url"] = _normalize_openai_base_url(base_url)
 
         self.client = openai.OpenAI(**client_params)
 
     def _create_openai_client(self, base_url: str = None, timeout=None):
-        """创建 OpenAI 客户端的通用方法"""
+        """创建 OpenAI 及第三方 Responses 客户端。"""
         if timeout is None:
             timeout = NETWORK_TIMEOUT
         params = {
@@ -98,12 +113,35 @@ class LLMService:
             "timeout": timeout
         }
         if base_url:
-            params["base_url"] = base_url
+            params["base_url"] = _normalize_openai_base_url(base_url)
         return openai.OpenAI(**params)
+
+    def list_models(self, provider: str, api_key: str, base_url: str = "") -> list:
+        """读取 OpenAI 兼容网关提供的模型列表，不保存密钥或临时配置。"""
+        import requests
+
+        normalized_url = _normalize_openai_base_url(base_url)
+        if not normalized_url:
+            normalized_url = "https://api.openai.com/v1"
+        models_url = f"{normalized_url}/models"
+        response = requests.get(
+            models_url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=NETWORK_TIMEOUT,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        data = payload.get("data", []) if isinstance(payload, dict) else []
+        model_ids = [
+            str(item.get("id"))
+            for item in data
+            if isinstance(item, dict) and item.get("id")
+        ]
+        return sorted(set(model_ids), key=str.casefold)
 
     def _chat_completion_with_messages(self, client, system_prompt: str, user_prompt: str, max_tokens: int = 8192,
                                        extra_body: dict = None) -> str:
-        """通用的 OpenAI 兼容格式对话方法"""
+        """兼容旧版 Chat Completions 协议的平台调用方法。"""
         response = client.chat.completions.create(
             model=self.model_name,
             messages=[
@@ -116,6 +154,144 @@ class LLMService:
         )
         return response.choices[0].message.content
 
+    @staticmethod
+    def _response_event_value(event, key: str, default=None):
+        """同时读取 OpenAI SDK 对象和第三方返回的字典事件。"""
+        if isinstance(event, dict):
+            return event.get(key, default)
+        return getattr(event, key, default)
+
+    @staticmethod
+    def _decode_json_response(response):
+        """按 JSON 原始字节解析，避免第三方网关错误 charset 导致中文乱码。"""
+        try:
+            # JSON 标准响应通常使用 UTF-8；直接传入 bytes 可绕过 requests 的错误编码推断。
+            return json.loads(response.content)
+        except (UnicodeDecodeError, json.JSONDecodeError, TypeError):
+            # 非标准网关响应时保留 requests 的兼容回退行为。
+            return response.json()
+
+    def _extract_responses_text(self, response) -> str:
+        """提取 Responses API 的文本，兼容 SDK 对象和第三方对象。"""
+        output_text = self._response_event_value(response, "output_text")
+        if output_text:
+            return str(output_text)
+
+        output = self._response_event_value(response, "output", []) or []
+        text_parts = []
+        for item in output:
+            content = self._response_event_value(item, "content", []) or []
+            for part in content:
+                text = self._response_event_value(part, "text")
+                if text:
+                    text_parts.append(str(text))
+                    continue
+                value = self._response_event_value(part, "value")
+                if value:
+                    text_parts.append(str(value))
+        return "".join(text_parts)
+
+    def _responses_create(self, client, system_prompt: str, user_prompt: str,
+                          max_output_tokens: int = 8192, stream: bool = False):
+        """调用 OpenAI Responses 协议，不发送 Chat Completions 字段。"""
+        return client.responses.create(
+            model=self.model_name,
+            instructions=system_prompt,
+            input=user_prompt,
+            max_output_tokens=max_output_tokens,
+            stream=stream,
+        )
+
+    def _responses_with_prompts(self, client, system_prompt: str, user_prompt: str,
+                                max_output_tokens: int = 8192) -> str:
+        """读取 OpenAI SDK Responses 响应中的文本。"""
+        response = self._responses_create(
+            client,
+            system_prompt,
+            user_prompt,
+            max_output_tokens=max_output_tokens,
+        )
+        text = self._extract_responses_text(response)
+        if not text:
+            raise RuntimeError("Responses API 返回中没有可读取的文本")
+        return text
+
+    def _responses_http_url(self, base_url: str = "") -> str:
+        normalized = _normalize_openai_base_url(base_url)
+        if not normalized:
+            normalized = "https://api.openai.com/v1"
+        if normalized.endswith("/responses"):
+            return normalized
+        return f"{normalized}/responses"
+
+    def _responses_http_request(self, system_prompt: str, user_prompt: str,
+                                max_output_tokens: int = 8192) -> str:
+        """使用普通 HTTP 请求调用第三方 Responses，规避网关拦截 SDK 请求特征。"""
+        import requests
+
+        response = requests.post(
+            self._responses_http_url(self.base_url),
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": self.model_name,
+                "instructions": system_prompt,
+                "input": user_prompt,
+                "max_output_tokens": max_output_tokens,
+            },
+            timeout=NETWORK_TIMEOUT,
+        )
+        response.raise_for_status()
+        text = self._extract_responses_text(self._decode_json_response(response))
+        if not text:
+            raise RuntimeError("Responses API 返回中没有可读取的文本")
+        return text
+
+    def _responses_http_stream(self, system_prompt: str, user_prompt: str,
+                               max_output_tokens: int = 8192) -> Generator[str, None, None]:
+        """解析第三方 Responses 的 SSE 流式响应。"""
+        import requests
+
+        with requests.post(
+            self._responses_http_url(self.base_url),
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "Accept": "text/event-stream",
+            },
+            json={
+                "model": self.model_name,
+                "instructions": system_prompt,
+                "input": user_prompt,
+                "max_output_tokens": max_output_tokens,
+                "stream": True,
+            },
+            timeout=NETWORK_TIMEOUT,
+            stream=True,
+        ) as response:
+            response.raise_for_status()
+            for raw_line in response.iter_lines(decode_unicode=False):
+                if not raw_line:
+                    continue
+                # 不使用 requests 根据响应头推断的编码，避免网关错误 charset 破坏中文。
+                line = raw_line.decode("utf-8", errors="replace")
+                if not line.startswith("data:"):
+                    continue
+                payload = line[5:].strip()
+                if payload == "[DONE]":
+                    return
+                try:
+                    event = json.loads(payload)
+                except json.JSONDecodeError:
+                    continue
+                if self._response_event_value(event, "type", "") == "response.output_text.delta":
+                    delta = self._response_event_value(event, "delta", "")
+                    if delta:
+                        yield str(delta)
+
+
     def generate(self, system_prompt: str, user_prompt: str, max_retries: int = 3) -> str:
         """同步生成文本 - 增强超时与重试机制"""
         if self.provider == "Mock (演示)":
@@ -123,22 +299,24 @@ class LLMService:
 
         logger.info(f"🚀 [LLM] 正在请求 {self.provider} ({self.model_name})...")
 
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-
         last_error = None
         for attempt in range(max_retries):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model_name,
-                    messages=messages,
-                    temperature=0.7,
-                    timeout=(60, 120)
-                )
-                logger.info(f"✅ [LLM] 请求成功，返回 {len(response.choices[0].message.content)} 字")
-                return response.choices[0].message.content.strip()
+                if self.provider in {"OpenAI (GPT)", "第三方 OpenAI (Responses)"}:
+                    response_text = self._call_openai_responses(
+                        system_prompt,
+                        user_prompt,
+                        timeout=(60, 120),
+                    )
+                else:
+                    # 保持非 Responses 平台的既有专用协议处理。
+                    handler = self._get_handler()
+                    response_text = handler(system_prompt, user_prompt, (60, 120))
+
+                if not response_text:
+                    raise RuntimeError("API 响应为空")
+                logger.info(f"✅ [LLM] 请求成功，返回 {len(response_text)} 字")
+                return response_text.strip()
 
             except Exception as e:
                 last_error = e
@@ -234,6 +412,7 @@ class LLMService:
             "Google Gemini": self._call_gemini,
             "自定义三方Gemini": self._call_custom_gemini,
             "OpenAI (GPT)": self._call_openai,
+            "第三方 OpenAI (Responses)": self._call_openai_responses,
             "Anthropic (Claude)": self._call_claude,
             "OpenRouter": self._call_openrouter,
             "阿里云通义千问": self._call_alitongyi
@@ -246,6 +425,7 @@ class LLMService:
             "Google Gemini": self._call_gemini_stream,
             "自定义三方Gemini": self._call_custom_gemini_stream,
             "OpenAI (GPT)": self._call_openai_stream,
+            "第三方 OpenAI (Responses)": self._call_openai_responses_stream,
             "Anthropic (Claude)": self._call_claude_stream,
             "OpenRouter": self._call_openrouter_stream,
             "阿里云通义千问": self._call_alitongyi_stream
@@ -296,10 +476,18 @@ class LLMService:
             raise e
 
     def _call_openai(self, system_prompt: str, user_prompt: str, timeout: int = None) -> str:
+        """官方 OpenAI 统一使用 Responses API。"""
+        return self._call_openai_responses(system_prompt, user_prompt, timeout)
+
+    def _call_openai_responses(self, system_prompt: str, user_prompt: str, timeout: int = None) -> str:
         if not openai:
             return "❌ pip install openai"
-        client = self._create_openai_client(timeout=timeout)
-        return self._chat_completion_with_messages(client, system_prompt, user_prompt, max_tokens=8192)
+        if self.provider == "第三方 OpenAI (Responses)":
+            logger.info(f"🚀 [Responses HTTP] 正在请求 {self.model_name}...")
+            return self._responses_http_request(system_prompt, user_prompt, max_output_tokens=8192)
+        client = self._create_openai_client(base_url=self.base_url or None, timeout=timeout)
+        logger.info(f"🚀 [Responses] 正在请求 {self.provider} ({self.model_name})...")
+        return self._responses_with_prompts(client, system_prompt, user_prompt, max_output_tokens=8192)
 
     def _call_claude(self, system_prompt: str, user_prompt: str, timeout: int = None) -> str:
         if not anthropic:
@@ -329,7 +517,24 @@ class LLMService:
         return self._chat_completion_with_messages(client, system_prompt, user_prompt)
 
     # ============ 流式输出方法 ============
+    def _stream_responses(self, client, system_prompt: str, user_prompt: str) -> Generator[str, None, None]:
+        """解析 Responses API 的标准增量事件。"""
+        response = self._responses_create(
+            client,
+            system_prompt,
+            user_prompt,
+            max_output_tokens=8192,
+            stream=True,
+        )
+        for event in response:
+            event_type = self._response_event_value(event, "type", "")
+            if event_type == "response.output_text.delta":
+                delta = self._response_event_value(event, "delta", "")
+                if delta:
+                    yield str(delta)
+
     def _stream_chat_completion(self, client, system_prompt: str, user_prompt: str) -> Generator[str, None, None]:
+        """兼容旧版 Chat Completions 流式协议的平台调用方法。"""
         response = client.chat.completions.create(
             model=self.model_name,
             messages=[
@@ -354,14 +559,22 @@ class LLMService:
         logger.info("✅ [流式请求] 流式输出完成！")
 
     def _call_openai_stream(self, system_prompt: str, user_prompt: str) -> Generator[str, None, None]:
+        """官方 OpenAI 的流式输出统一使用 Responses API。"""
+        yield from self._call_openai_responses_stream(system_prompt, user_prompt)
+
+    def _call_openai_responses_stream(self, system_prompt: str, user_prompt: str) -> Generator[str, None, None]:
         if not openai:
             yield "❌ pip install openai"
             return
-        logger.info(f"🚀 [流式请求] 正在向 OpenAI ({self.model_name}) 发送流式请求...")
-        client = self._create_openai_client()
-        logger.info("⏳ [流式请求] 连接成功，开始接收内容...")
-        yield from self._stream_chat_completion(client, system_prompt, user_prompt)
-        logger.info("✅ [流式请求] 流式输出完成！")
+        if self.provider == "第三方 OpenAI (Responses)":
+            logger.info(f"🚀 [Responses HTTP 流式请求] 正在请求 {self.model_name}...")
+            yield from self._responses_http_stream(system_prompt, user_prompt, max_output_tokens=8192)
+            return
+        logger.info(f"🚀 [Responses 流式请求] 正在请求 {self.provider} ({self.model_name})...")
+        client = self._create_openai_client(base_url=self.base_url or None)
+        logger.info("⏳ [Responses 流式请求] 连接成功，开始接收内容...")
+        yield from self._stream_responses(client, system_prompt, user_prompt)
+        logger.info("✅ [Responses 流式请求] 流式输出完成！")
 
     def _call_openrouter_stream(self, system_prompt: str, user_prompt: str) -> Generator[str, None, None]:
         if not openai:
